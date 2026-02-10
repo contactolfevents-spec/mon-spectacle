@@ -1,0 +1,734 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Users, Music, Wand2, BarChart3, Upload, Plus, Trash2, ChevronRight, 
+  AlertCircle, LayoutGrid, TrendingUp, UserPlus, Settings, FileSpreadsheet, 
+  Star, PartyPopper, Sparkles, Zap, Activity, ListChecks, Search, Filter, 
+  CheckCircle2, AlertTriangle, Timer, Scale, BrainCircuit, MessageSquareQuote, 
+  Lightbulb, Check, UserCheck, Lock, X, FileDown, ShieldAlert, Gauge, Download
+} from 'lucide-react';
+import { 
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
+  BarChart, Bar, Cell, PieChart, Pie, Legend 
+} from 'recharts';
+
+// --- Configuration Gemini (Optionnelle) ---
+const apiKey = ""; 
+
+// --- Utilitaires de normalisation pour Excel ---
+const normalizeKey = (key) => {
+  if (key === null || key === undefined) return "";
+  return key.toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") 
+    .replace(/[^a-z0-9]/g, '') 
+    .trim();
+};
+
+const getValueByFlexibleKeys = (row, targetKeys) => {
+  if (!row || typeof row !== 'object') return null;
+  const normalizedTargets = targetKeys.map(k => normalizeKey(k));
+  const foundKey = Object.keys(row).find(k => normalizedTargets.includes(normalizeKey(k)));
+  return foundKey ? row[foundKey] : null;
+};
+
+// --- Styles visuels ---
+const ACT_TYPE_STYLES = {
+  ouverture: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200' },
+  introduction: { bg: 'bg-sky-100', text: 'text-sky-700', border: 'border-sky-200' },
+  tableau: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200' },
+  inter: { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200' },
+  fermeture: { bg: 'bg-rose-100', text: 'text-rose-700', border: 'border-rose-200' },
+  default: { bg: 'bg-slate-100', text: 'text-slate-600', border: 'border-slate-200' }
+};
+
+const FORMATION_COLORS = [
+  { bg: 'bg-indigo-100', text: 'text-indigo-700', border: 'border-indigo-200', pure: '#6366f1' },
+  { bg: 'bg-rose-100', text: 'text-rose-700', border: 'border-rose-200', pure: '#f43f5e' },
+  { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200', pure: '#f59e0b' },
+  { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200', pure: '#10b981' },
+  { bg: 'bg-sky-100', text: 'text-sky-700', border: 'border-sky-200', pure: '#0ea5e9' },
+  { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200', pure: '#a855f7' },
+  { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-200', pure: '#f97316' },
+];
+
+const getFormationStyle = (name, formationsList) => {
+  const index = formationsList.indexOf(name);
+  if (index === -1) return FORMATION_COLORS[0];
+  return FORMATION_COLORS[index % FORMATION_COLORS.length];
+};
+
+const getActTypeStyle = (type) => {
+  if (!type) return ACT_TYPE_STYLES.default;
+  const normalized = type.toLowerCase().trim();
+  if (normalized.includes('ouverture')) return ACT_TYPE_STYLES.ouverture;
+  if (normalized.includes('intro')) return ACT_TYPE_STYLES.introduction;
+  if (normalized.includes('tableau')) return ACT_TYPE_STYLES.tableau;
+  if (normalized.includes('inter')) return ACT_TYPE_STYLES.inter;
+  if (normalized.includes('fermeture')) return ACT_TYPE_STYLES.fermeture;
+  return ACT_TYPE_STYLES.default;
+};
+
+// --- Composants UI de base ---
+const Card = ({ title, children, icon: Icon, actions, noPadding = false }) => (
+  <div className="bg-white/80 backdrop-blur-md rounded-[2rem] shadow-xl shadow-indigo-100/50 border border-white overflow-hidden mb-6">
+    <div className="px-6 py-5 border-b border-indigo-50 flex justify-between items-center bg-gradient-to-r from-white to-indigo-50/30">
+      <div className="flex items-center gap-3">
+        <div className="p-2 bg-indigo-100 rounded-xl">{Icon && <Icon className="w-5 h-5 text-indigo-600" />}</div>
+        <h3 className="font-bold text-slate-800 text-lg tracking-tight">{title}</h3>
+      </div>
+      <div className="flex gap-2">{actions}</div>
+    </div>
+    <div className={noPadding ? "" : "p-6"}>{children}</div>
+  </div>
+);
+
+const Button = ({ children, onClick, variant = 'primary', icon: Icon, className = "", disabled = false, loading = false }) => {
+  const variants = {
+    primary: "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-200",
+    secondary: "bg-white text-slate-700 border-2 border-slate-100 hover:bg-slate-50",
+    danger: "bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-100",
+    ai: "bg-gradient-to-br from-fuchsia-500 to-indigo-600 text-white shadow-lg shadow-fuchsia-100"
+  };
+  return (
+    <button onClick={onClick} disabled={disabled || loading} className={`px-5 py-2.5 rounded-2xl font-bold transition-all flex items-center gap-2 text-sm disabled:opacity-50 active:scale-95 ${variants[variant]} ${className}`}>
+      {loading ? <Zap className="w-4 h-4 animate-spin" /> : Icon && <Icon className="w-4 h-4" />}
+      {children}
+    </button>
+  );
+};
+
+// --- Application ---
+const LOCAL_STORAGE_KEY = 'show_planner_pro_v10_restored';
+const INITIAL_STATE = { students: [], acts: [], assignments: [], formationLimits: {}, actRequirements: {} };
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('students');
+  const [data, setData] = useState(INITIAL_STATE);
+  const [notif, setNotif] = useState(null);
+  const [libReady, setLibReady] = useState(false);
+
+  const formations = useMemo(() => Array.from(new Set(data.students.map(s => s.trainingName))).sort(), [data.students]);
+
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
+    script.async = true;
+    script.onload = () => setLibReady(true);
+    document.head.appendChild(script);
+  }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (saved) { try { setData(JSON.parse(saved)); } catch (e) { console.error(e); } }
+  }, []);
+
+  useEffect(() => { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data)); }, [data]);
+
+  const showNotif = (msg) => { setNotif(msg); setTimeout(() => setNotif(null), 5000); };
+
+  const handleFileUpload = (e, type) => {
+    if (!libReady || !window.XLSX) { showNotif("⚠️ Librairie Excel non prête."); return; }
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const dataArr = new Uint8Array(evt.target.result);
+      const wb = window.XLSX.read(dataArr, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1 });
+      
+      let headerRowIndex = rows.findIndex(row => {
+        if (!Array.isArray(row)) return false;
+        let matchCount = 0;
+        row.forEach(cell => {
+          if (!cell) return;
+          const n = normalizeKey(cell);
+          if (n === 'nom' || n === 'prenom' || n === 'formation' || n === 'nomeleve' || n === 'prenomeleve' || n === 'nomdunúmero') {
+            matchCount++;
+          }
+        });
+        return matchCount >= 2; 
+      });
+
+      if (headerRowIndex === -1) headerRowIndex = 0;
+      const cleanData = window.XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
+
+      if (type === 'students') {
+        const newStudents = cleanData.map(row => {
+          const ln = getValueByFlexibleKeys(row, ['nom', 'nomeleve', 'nom de l\'eleve', 'nom eleve']);
+          const fn = getValueByFlexibleKeys(row, ['prenom', 'prenomeleve', 'prenom de l\'eleve', 'prenom eleve']);
+          const tr = getValueByFlexibleKeys(row, ['formation', 'classe', 'discipline', 'training']) || "Animation";
+          if (!fn && !ln) return null;
+          return { id: crypto.randomUUID(), firstName: fn || "", lastName: ln || "", trainingName: tr };
+        }).filter(s => s !== null);
+        setData(prev => ({ ...prev, students: [...prev.students, ...newStudents] }));
+        showNotif(`🎭 ${newStudents.length} artistes importés !`);
+      } 
+      else if (type === 'acts') {
+        const energyMap = { 'basse': 'low', 'moyenne': 'medium', 'haute': 'high', 'bas': 'low', 'moyen': 'medium', 'haut': 'high', 'low': 'low', 'medium': 'medium', 'high': 'high' };
+        const newActs = cleanData.map(row => {
+          const nm = getValueByFlexibleKeys(row, ['nomdunúmero', 'numero', 'nom du numero', 'name']);
+          const tp = getValueByFlexibleKeys(row, ['typedunúmero', 'type']);
+          const en = energyMap[normalizeKey(getValueByFlexibleKeys(row, ['énergie', 'energie', 'energy']))] || 'medium';
+          if (!nm) return null;
+          return { id: crypto.randomUUID(), name: nm, type: tp || "Tableau", energy: en };
+        }).filter(a => a !== null);
+        setData(prev => ({ ...prev, acts: [...prev.acts, ...newActs] }));
+        showNotif(`🎬 ${newActs.length} numéros importés !`);
+      }
+      else if (type === 'assignments') {
+        if (data.students.length === 0 || data.acts.length === 0) {
+          showNotif("❌ Importez d'abord les Artistes et les Numéros !"); return;
+        }
+        let successCount = 0;
+        const newAssignments = cleanData.map(row => {
+          const actName = getValueByFlexibleKeys(row, ['nomdunúmero', 'numero', 'nom du numero', 'name']);
+          const firstName = getValueByFlexibleKeys(row, ['prenom', 'prenomeleve']);
+          const lastName = getValueByFlexibleKeys(row, ['nom', 'nomeleve']);
+          if (!actName || !firstName || !lastName) return null;
+          const act = data.acts.find(a => normalizeKey(a.name) === normalizeKey(actName));
+          const student = data.students.find(s => normalizeKey(s.firstName) === normalizeKey(firstName) && normalizeKey(s.lastName) === normalizeKey(lastName));
+          if (act && student) { successCount++; return { actId: act.id, studentId: student.id }; }
+          return null;
+        }).filter(a => a !== null);
+        setData(prev => ({ ...prev, assignments: newAssignments }));
+        showNotif(`✅ ${successCount} affectations importées !`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = null; 
+  };
+
+  const generateMagicDistribution = () => {
+    const { students, acts, actRequirements, formationLimits } = data;
+    if (acts.length === 0 || students.length === 0) { showNotif("Données manquantes !"); return; }
+    let temp = [];
+    let stats = {};
+    students.forEach(s => stats[s.id] = { load: 0, last: -2 });
+
+    // 1. Verrous (Artistes imposés)
+    acts.forEach((act, i) => {
+      const req = actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
+      (req.fixedStudents || []).forEach(sId => {
+        if (students.find(x => x.id === sId)) { temp.push({ actId: act.id, studentId: sId }); stats[sId].load++; stats[sId].last = i; }
+      });
+    });
+
+    // 2. Remplissage intelligent
+    acts.forEach((act, i) => {
+      const req = actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
+      const currentIn = temp.filter(a => a.actId === act.id).length;
+      const left = Math.max(0, (req.total || 0) - currentIn);
+      const allowed = req.allowedFormations || [];
+      if (left === 0 || allowed.length === 0) return;
+      for (let j = 0; j < left; j++) {
+        const candidates = students.filter(s => {
+          const isAllowed = allowed.includes(s.trainingName);
+          const notInAct = !temp.some(a => a.actId === act.id && a.studentId === s.id);
+          const notInPrev = stats[s.id].last !== i - 1;
+          const underLimit = stats[s.id].load < (formationLimits[s.trainingName] || 99);
+          return isAllowed && notInAct && notInPrev && underLimit;
+        }).sort((a, b) => stats[a.id].load - stats[b.id].load);
+        
+        if (candidates.length > 0) { 
+          const chosen = candidates[0]; 
+          temp.push({ actId: act.id, studentId: chosen.id }); 
+          stats[chosen.id].load++; 
+          stats[chosen.id].last = i; 
+        }
+      }
+    });
+    setData(prev => ({ ...prev, assignments: temp }));
+    showNotif("Casting généré avec succès ! ✨");
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFF] text-slate-900 font-sans pb-20">
+      <header className="bg-white/70 backdrop-blur-xl border-b border-indigo-50 sticky top-0 z-40 h-20 px-6 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="bg-gradient-to-tr from-indigo-600 to-purple-600 p-3 rounded-[1.25rem] shadow-lg transform hover:rotate-6 transition-transform">
+            <Sparkles className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-700 to-rose-600 uppercase tracking-tighter leading-none mb-1">SHOW PLANNER PRO</h1>
+            <p className="text-[10px] font-bold tracking-widest text-indigo-400">DIRECTION ARTISTIQUE</p>
+          </div>
+        </div>
+        {notif && <div className="bg-indigo-800 text-white px-6 py-2 rounded-2xl text-xs font-black shadow-xl animate-bounce">{notif}</div>}
+      </header>
+
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        <nav className="flex bg-indigo-50/50 p-1.5 rounded-[2rem] shadow-inner mb-10 w-fit border border-white mx-auto overflow-x-auto">
+          {[
+            { id: 'students', label: 'Artistes', icon: Users }, 
+            { id: 'show', label: 'Spectacle', icon: Music }, 
+            { id: 'proposal', label: 'Magie', icon: Wand2 }, 
+            { id: 'manual', label: 'Coulisses', icon: UserPlus }, 
+            { id: 'stats', label: 'Succès', icon: BarChart3 },
+            { id: 'export', label: 'Régie', icon: Download }
+          ].map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-8 py-3 rounded-2xl text-sm font-bold transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-white text-indigo-700 shadow-xl' : 'text-slate-500 hover:text-indigo-600'}`}>
+              <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-indigo-500 animate-pulse' : ''}`} />{tab.label}
+            </button>
+          ))}
+        </nav>
+
+        {activeTab === 'students' && <StudentManager data={data} formations={formations} setData={setData} handleFileUpload={handleFileUpload} />}
+        {activeTab === 'show' && <ShowManager data={data} setData={setData} handleFileUpload={handleFileUpload} />}
+        {activeTab === 'proposal' && <ProposalEngine data={data} formations={formations} setData={setData} onGenerate={generateMagicDistribution} />}
+        {activeTab === 'manual' && <ManualAllocation data={data} formations={formations} setData={setData} handleFileUpload={handleFileUpload} />}
+        {activeTab === 'stats' && <StatsDashboard data={data} formations={formations} />}
+        {activeTab === 'export' && <ExportDashboard data={data} formations={formations} />}
+      </div>
+    </div>
+  );
+}
+
+// --- SOUS-SECTIONS ---
+
+function ExportDashboard({ data, formations }) {
+  const exportToExcel = () => {
+    if (!window.XLSX) return;
+    
+    // 1. Préparation des fiches individuelles
+    const studentSchedules = data.students.map(s => {
+      const studentActs = data.assignments
+        .filter(a => a.studentId === s.id)
+        .map(a => {
+          const act = data.acts.find(act => act.id === a.actId);
+          const index = data.acts.findIndex(act => act.id === a.actId) + 1;
+          return `${index}. ${act?.name}`;
+        })
+        .join(' | ');
+
+      return {
+        "Artiste": `${s.firstName} ${s.lastName}`.toUpperCase(),
+        "Formation": s.trainingName,
+        "Nombre de numéros": data.assignments.filter(a => a.studentId === s.id).length,
+        "Feuille de route": studentActs
+      };
+    });
+
+    // 2. Statistiques par formation
+    const formationStats = formations.map(f => ({
+      "Formation": f,
+      "Nombre d'élèves": data.students.filter(s => s.trainingName === f).length,
+      "Charge totale (apparitions)": data.assignments.filter(a => data.students.find(s => s.id === a.studentId)?.trainingName === f).length
+    }));
+
+    // 3. Classement individuel
+    const ranking = data.students
+      .map(s => ({
+        "Artiste": `${s.firstName} ${s.lastName}`.toUpperCase(),
+        "Formation": s.trainingName,
+        "Total Tableaux": data.assignments.filter(a => a.studentId === s.id).length
+      }))
+      .sort((a, b) => b["Total Tableaux"] - a["Total Tableaux"]);
+
+    // Création du workbook
+    const wb = window.XLSX.utils.book_new();
+    
+    const ws1 = window.XLSX.utils.json_to_sheet(studentSchedules);
+    window.XLSX.utils.book_append_sheet(wb, ws1, "Fiches Individuelles");
+    
+    const ws2 = window.XLSX.utils.json_to_sheet(formationStats);
+    window.XLSX.utils.book_append_sheet(wb, ws2, "Stats Formations");
+    
+    const ws3 = window.XLSX.utils.json_to_sheet(ranking);
+    window.XLSX.utils.book_append_sheet(wb, ws3, "Classement");
+
+    window.XLSX.writeFile(wb, `Show_Planner_Export_${new Date().toLocaleDateString()}.xlsx`);
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto text-center space-y-8 animate-in fade-in duration-500">
+      <div className="space-y-2">
+        <h2 className="text-3xl font-black text-slate-800">CENTRE DE RÉGIE</h2>
+        <p className="text-slate-500 font-bold uppercase tracking-widest text-sm">Extraction des données pour le plateau et les artistes</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-indigo-50 flex flex-col items-center text-center space-y-3">
+          <div className="p-4 bg-indigo-50 rounded-2xl text-indigo-600"><FileDown className="w-8 h-8" /></div>
+          <h4 className="font-black text-slate-800 text-sm">FICHES INDIVIDUELLES</h4>
+          <p className="text-[10px] text-slate-400 font-bold leading-tight">Génère la liste des tableaux pour chaque élève. Idéal pour l'affichage en loges.</p>
+        </div>
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-indigo-50 flex flex-col items-center text-center space-y-3">
+          <div className="p-4 bg-emerald-50 rounded-2xl text-emerald-600"><TrendingUp className="w-8 h-8" /></div>
+          <h4 className="font-black text-slate-800 text-sm">BILAN FORMATIONS</h4>
+          <p className="text-[10px] text-slate-400 font-bold leading-tight">Récapitule la charge de travail globale par spécialité (ALTPOLY, GAT, etc.).</p>
+        </div>
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-indigo-50 flex flex-col items-center text-center space-y-3">
+          <div className="p-4 bg-amber-50 rounded-2xl text-amber-600"><Star className="w-8 h-8" /></div>
+          <h4 className="font-black text-slate-800 text-sm">CLASSEMENT TOP ARTISTES</h4>
+          <p className="text-[10px] text-slate-400 font-bold leading-tight">Identifie les artistes les plus sollicités pour équilibrer les castings.</p>
+        </div>
+      </div>
+
+      <div className="bg-white p-10 rounded-[3rem] border-4 border-indigo-50 shadow-2xl">
+        <Sparkles className="w-12 h-12 text-indigo-500 mx-auto mb-6 animate-pulse" />
+        <h3 className="text-xl font-black text-slate-800 mb-4">PRÊT POUR L'EXTRACTION ?</h3>
+        <p className="text-slate-400 text-xs font-bold uppercase mb-8 leading-relaxed">Le fichier Excel contiendra 3 onglets organisés pour votre régie de spectacle.</p>
+        <button 
+          onClick={exportToExcel}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-12 py-5 rounded-[2rem] font-black text-lg shadow-2xl shadow-indigo-200 transition-all active:scale-95 flex items-center gap-4 mx-auto"
+        >
+          <Download className="w-6 h-6" /> TÉLÉCHARGER LE DOSSIER DE RÉGIE (.XLSX)
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StudentManager({ data, formations, setData, handleFileUpload }) {
+  const [form, setForm] = useState({ firstName: '', lastName: '', trainingName: '' });
+  const add = (e) => {
+    e.preventDefault();
+    if (!form.firstName || !form.lastName) return;
+    setData(prev => ({ ...prev, students: [...prev.students, { ...form, id: crypto.randomUUID() }] }));
+    setForm({ firstName: '', lastName: '', trainingName: '' });
+  };
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+      <div className="space-y-6">
+        <Card title="Ajout Manuel" icon={Plus}>
+          <form onSubmit={add} className="space-y-4">
+            <input type="text" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400" placeholder="Prénom" />
+            <input type="text" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400" placeholder="Nom" />
+            <input type="text" value={form.trainingName} onChange={e => setForm({...form, trainingName: e.target.value})} list="f-list" className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400" placeholder="Formation" />
+            <datalist id="f-list">{formations.map(f => <option key={f} value={f} />)}</datalist>
+            <Button className="w-full justify-center">Ajouter l'Artiste</Button>
+          </form>
+        </Card>
+        <div className="relative group rounded-[2rem] border-2 border-dashed border-indigo-200 p-8 text-center bg-indigo-50/30 hover:bg-indigo-50 transition-all cursor-pointer">
+          <input type="file" accept=".xlsx, .xls, .csv" onChange={(e) => handleFileUpload(e, 'students')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+          <Upload className="w-10 h-10 text-indigo-400 mx-auto mb-3" />
+          <h4 className="font-bold text-indigo-900 text-xs uppercase tracking-widest">Excel Artistes</h4>
+        </div>
+      </div>
+      <div className="lg:col-span-3">
+        <Card title={`Troupe de Scène (${data.students.length})`} icon={Users}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+            {data.students.map(s => {
+              const style = getFormationStyle(s.trainingName, formations);
+              return (
+                <div key={s.id} className="p-3 bg-white border border-slate-100 rounded-2xl flex justify-between items-center group shadow-sm hover:border-indigo-100 transition-all">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg ${style.bg} ${style.text} flex items-center justify-center font-black text-xs uppercase`}>{s.firstName[0]}</div>
+                    <div className="truncate"><p className="font-bold text-slate-800 text-xs uppercase">{s.firstName} {s.lastName}</p><span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-md ${style.bg} ${style.text}`}>{s.trainingName}</span></div>
+                  </div>
+                  <button onClick={() => setData(p => ({...p, students: p.students.filter(x => x.id !== s.id)}))} className="text-rose-200 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function ShowManager({ data, setData, handleFileUpload }) {
+  const [form, setForm] = useState({ name: '', type: 'Tableau', energy: 'medium' });
+  const energyColors = { low: "from-blue-400 to-cyan-500", medium: "from-amber-400 to-orange-500", high: "from-rose-500 to-purple-600" };
+  const add = (e) => { e.preventDefault(); if (!form.name) return; setData(prev => ({ ...prev, acts: [...prev.acts, { ...form, id: crypto.randomUUID() }] })); setForm({ name: '', type: 'Tableau', energy: 'medium' }); };
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+      <div className="space-y-6">
+        <Card title="Nouveau Numéro" icon={Plus}>
+          <form onSubmit={add} className="space-y-5">
+            <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400" placeholder="Nom du numéro" />
+            <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-xs font-bold outline-none bg-white">
+                <option value="Ouverture">Ouverture</option>
+                <option value="Introduction">Introduction</option>
+                <option value="Tableau">Tableau</option>
+                <option value="Inter">Inter</option>
+                <option value="Fermeture">Fermeture</option>
+            </select>
+            <div className="flex gap-1">
+              {['low', 'medium', 'high'].map(l => (
+                <button key={l} type="button" onClick={() => setForm({...form, energy: l})} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${form.energy === l ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-400'}`}>{l}</button>
+              ))}
+            </div>
+            <Button className="w-full justify-center">Ajouter au Show</Button>
+          </form>
+        </Card>
+        <div className="relative group rounded-[2rem] border-2 border-dashed border-purple-200 p-8 text-center bg-purple-50/30 hover:bg-purple-50 transition-all cursor-pointer">
+          <input type="file" accept=".xlsx, .xls, .csv" onChange={(e) => handleFileUpload(e, 'acts')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+          <FileSpreadsheet className="w-10 h-10 text-purple-400 mx-auto mb-3" />
+          <h4 className="font-bold text-purple-900 text-xs uppercase tracking-widest">Excel Numéros</h4>
+        </div>
+      </div>
+      <div className="lg:col-span-3 space-y-3">
+        {data.acts.map((act, idx) => (
+          <div key={act.id} className="group flex items-center justify-between p-4 bg-white border border-slate-50 rounded-2xl shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center gap-4">
+              <div className="text-2xl font-black text-slate-100 italic w-8 shrink-0">{(idx + 1).toString().padStart(2, '0')}</div>
+              <div className="truncate pr-4"><h4 className="font-black text-slate-800 text-sm uppercase leading-none mb-1">{act.name}</h4><span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border ${getActTypeStyle(act.type).bg} ${getActTypeStyle(act.type).text}`}>{act.type || "Show"}</span></div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase text-white bg-gradient-to-r ${energyColors[act.energy]}`}>{act.energy}</div>
+              <button onClick={() => setData(p => ({...p, acts: p.acts.filter(x => x.id !== act.id)}))} className="text-rose-200 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProposalEngine({ data, formations, setData, onGenerate }) {
+  const [fixedSearch, setFixedSearch] = useState({});
+  const toggleFixedStudent = (actId, studentId) => {
+    setData(prev => {
+      const cur = prev.actRequirements[actId] || { total: 0, allowedFormations: [], fixedStudents: [] };
+      const fixed = cur.fixedStudents || [];
+      const next = fixed.includes(studentId) ? fixed.filter(id => id !== studentId) : [...fixed, studentId];
+      return { ...prev, actRequirements: { ...prev.actRequirements, [actId]: { ...cur, fixedStudents: next } } };
+    });
+  };
+  return (
+    <div className="max-w-6xl mx-auto space-y-10">
+      <div className="text-center space-y-1"><h2 className="text-3xl font-black text-slate-800 flex items-center justify-center gap-3"><Wand2 className="w-8 h-8 text-indigo-600" /> MAGIE DE RÉPARTITION</h2><p className="text-slate-500 text-sm uppercase font-bold tracking-widest">Équilibrage intelligent et quotas</p></div>
+      
+      {/* Quotas par formation */}
+      <Card title="Quotas de charge par formation" icon={Gauge}>
+          <div className="flex flex-wrap gap-4">
+              {formations.map(f => {
+                  const style = getFormationStyle(f, formations);
+                  return (
+                      <div key={f} className={`px-4 py-2 rounded-2xl border ${style.bg} ${style.border} flex items-center gap-3`}>
+                          <span className={`text-[10px] font-black uppercase ${style.text}`}>{f}</span>
+                          <input type="number" min="1" value={data.formationLimits[f] || ''} onChange={e => setData(prev => ({...prev, formationLimits: {...prev.formationLimits, [f]: parseInt(e.target.value)}}))} className="w-12 bg-white px-2 py-1 rounded-lg text-xs font-black text-indigo-700 outline-none" placeholder="∞" />
+                      </div>
+                  );
+              })}
+          </div>
+      </Card>
+
+      <div className="space-y-4">
+        {data.acts.map((act, idx) => {
+          const req = data.actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
+          const matches = data.students.filter(s => `${s.firstName} ${s.lastName}`.toLowerCase().includes((fixedSearch[act.id] || "").toLowerCase())).slice(0, 5);
+          const actTypeStyle = getActTypeStyle(act.type);
+          
+          return (
+            <div key={act.id} className="bg-white rounded-[2rem] p-6 shadow-lg shadow-indigo-100/20 border border-white hover:border-indigo-100 transition-all">
+               <div className="flex flex-col lg:flex-row gap-6">
+                  <div className="lg:w-[280px] shrink-0">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="text-2xl font-black text-slate-100 italic shrink-0">{(idx + 1).toString().padStart(2, '0')}</div>
+                        <h4 className="text-[11px] font-black text-slate-800 uppercase truncate leading-tight">{act.name}</h4>
+                      </div>
+                      <div className="mb-4">
+                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${actTypeStyle.bg} ${actTypeStyle.text} ${actTypeStyle.border}`}>
+                          {act.type || "Tableau"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 bg-indigo-50/50 p-2.5 rounded-2xl border border-indigo-100/30">
+                        <Users className="w-4 h-4 text-indigo-400" /><label className="text-[9px] font-black uppercase text-indigo-600 flex-1">Besoin :</label>
+                        <input type="number" min="0" value={req.total || ''} onChange={e => setData(prev => ({...prev, actRequirements: {...prev.actRequirements, [act.id]: {...req, total: parseInt(e.target.value) || 0}}}))} className="w-16 px-2 py-1.5 rounded-xl border border-indigo-200 text-center font-black text-indigo-700 outline-none text-xs" />
+                      </div>
+                  </div>
+                  <div className="flex-1 space-y-2 px-6 border-l border-r border-slate-50">
+                      <label className="text-[9px] font-black uppercase text-slate-400 block tracking-widest">Formations Autorisées</label>
+                      <div className="flex flex-wrap gap-2">
+                          {formations.map(f => {
+                              const active = req.allowedFormations.includes(f);
+                              const style = getFormationStyle(f, formations);
+                              return (
+                                  <button key={f} onClick={() => setData(prev => { const all = req.allowedFormations; const n = active ? all.filter(x => x !== f) : [...all, f]; return {...prev, actRequirements: {...prev.actRequirements, [act.id]: {...req, allowedFormations: n}}}; })} className={`px-3 py-1.5 rounded-xl text-[9px] font-black transition-all border ${active ? `${style.bg} ${style.border} ${style.text} shadow-sm` : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-200'}`}>{f}</button>
+                              );
+                          })}
+                      </div>
+                  </div>
+                  <div className="lg:w-[320px] shrink-0 space-y-3">
+                      <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" /><input type="text" placeholder="Imposer un artiste..." value={fixedSearch[act.id] || ""} onChange={(e) => setFixedSearch({...fixedSearch, [act.id]: e.target.value})} className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-100 bg-slate-50/30 text-[10px] font-bold outline-none focus:ring-1 focus:ring-amber-200" />
+                        {fixedSearch[act.id] && <div className="absolute top-full left-0 right-0 z-50 bg-white border border-slate-100 rounded-xl mt-1 shadow-2xl overflow-hidden animate-in zoom-in-95">{matches.map(s => <button key={s.id} onClick={() => { toggleFixedStudent(act.id, s.id); setFixedSearch({...fixedSearch, [act.id]: ""}); }} className="w-full text-left px-4 py-2.5 text-[10px] hover:bg-slate-50 flex items-center justify-between font-black uppercase tracking-tight text-slate-600"><span>{s.firstName} {s.lastName}</span></button>)}</div>}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">{req.fixedStudents?.map(sId => { const s = data.students.find(x => x.id === sId); return s ? (<div key={sId} className="flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-lg border bg-amber-50 border-amber-200 text-amber-700 text-[8px] font-black shadow-sm group"><Lock className="w-2.5 h-2.5 opacity-50" /> {s.firstName} <button onClick={() => toggleFixedStudent(act.id, sId)}><X className="w-3 h-3" /></button></div>) : null; })}</div>
+                  </div>
+               </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex justify-center pb-12"><button className="px-12 py-5 bg-gradient-to-br from-indigo-600 via-purple-600 to-rose-600 rounded-[2.5rem] text-white font-black text-xl shadow-2xl active:scale-95 transition-transform" onClick={onGenerate}>LANCER LE CASTING MAGIQUE ✨</button></div>
+    </div>
+  );
+}
+
+function ManualAllocation({ data, formations, setData, handleFileUpload }) {
+  const [selectedActId, setSelectedActId] = useState(data.acts[0]?.id);
+  const [search, setSearch] = useState("");
+  const currentAct = data.acts.find(a => a.id === selectedActId);
+  const assignments = data.assignments.filter(a => a.actId === selectedActId);
+  const currentCastIds = new Set(assignments.map(a => a.studentId));
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="lg:col-span-3 space-y-4">
+        <div className="relative group rounded-3xl border-2 border-dashed border-indigo-100 p-6 text-center bg-indigo-50/30 hover:bg-indigo-50 transition-all cursor-pointer">
+          <input type="file" accept=".xlsx, .xls, .csv" onChange={(e) => handleFileUpload(e, 'assignments')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+          <Upload className="w-6 h-6 text-indigo-400 mx-auto mb-2" />
+          <h4 className="font-bold text-indigo-900 text-[9px] uppercase tracking-widest">Importer Répartition</h4>
+        </div>
+        <div className="space-y-1.5 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+          {data.acts.map((act, idx) => (
+            <button key={act.id} onClick={() => setSelectedActId(act.id)} className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center justify-between shadow-sm ${selectedActId === act.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg scale-105 z-10' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-200'}`}>
+              <div className="truncate pr-2 text-[10px] font-black uppercase leading-none">{idx + 1}. {act.name}</div>
+              <div className={`shrink-0 w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${selectedActId === act.id ? 'bg-indigo-500' : 'bg-indigo-50 text-indigo-600'}`}>{data.assignments.filter(a => a.actId === act.id).length}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="lg:col-span-9">
+        {currentAct ? (
+          <div className="space-y-6">
+            <Card title={`Distribution : ${currentAct.name}`} icon={Star} actions={<p className="text-[10px] font-black text-indigo-500 uppercase bg-indigo-50 px-3 py-1 rounded-lg">{assignments.length} Artistes sur ce numéro</p>}>
+              <div className="relative mb-6">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                <input type="text" placeholder="Rechercher un artiste dans la troupe..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl border-2 border-slate-50 bg-slate-50/30 shadow-inner outline-none text-xs font-bold focus:ring-2 focus:ring-indigo-100 transition-all" />
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+                {data.students.filter(s => `${s.firstName} ${s.lastName}`.toLowerCase().includes(search.toLowerCase())).map(student => {
+                  const isAssigned = currentCastIds.has(student.id);
+                  const style = getFormationStyle(student.trainingName, formations);
+                  return (
+                    <button key={student.id} onClick={() => {
+                      const exists = data.assignments.some(a => a.actId === selectedActId && a.studentId === student.id);
+                      setData(p => ({ ...p, assignments: exists ? p.assignments.filter(a => !(a.actId === selectedActId && a.studentId === student.id)) : [...p.assignments, { actId: selectedActId, studentId: student.id }] }));
+                    }} className={`relative p-3 rounded-2xl border-2 text-left transition-all group ${isAssigned ? `${style.bg} ${style.border} shadow-md scale-[1.02] z-10` : 'bg-white border-white hover:border-slate-100'}`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-[10px] shrink-0 ${isAssigned ? 'bg-white/60' : style.bg} ${style.text}`}>{student.firstName[0]}</div>
+                        <div className="truncate"><p className={`font-black text-[10px] uppercase truncate ${isAssigned ? style.text : 'text-slate-800'}`}>{student.firstName} {student.lastName}</p><p className="text-[8px] font-bold text-slate-400">Charge : {data.assignments.filter(a => a.studentId === student.id).length} tableaux</p></div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
+          </div>
+        ) : <p className="text-center text-slate-400 py-20 italic font-black uppercase tracking-widest text-xs">Veuillez sélectionner un numéro à gauche</p>}
+      </div>
+    </div>
+  );
+}
+
+function StatsDashboard({ data, formations }) {
+  const energyData = data.acts.map((act, idx) => ({ name: act.name, idx: idx + 1, val: act.energy === 'high' ? 3 : act.energy === 'medium' ? 2 : 1 }));
+  
+  const formationWorkloadData = useMemo(() => {
+    return formations.map(f => {
+      const assignedToFormation = data.assignments.filter(a => {
+        const student = data.students.find(s => s.id === a.studentId);
+        return student?.trainingName === f;
+      });
+      return { name: f, count: assignedToFormation.length };
+    }).sort((a, b) => b.count - a.count); 
+  }, [data, formations]);
+
+  const studentData = data.students.map(s => ({ id: s.id, name: `${s.firstName} ${s.lastName}`, count: data.assignments.filter(a => a.studentId === s.id).length, formation: s.trainingName })).sort((a, b) => b.count - a.count);
+  
+  const consecutiveAlerts = useMemo(() => {
+    const alerts = [];
+    data.students.forEach(student => {
+      for (let i = 0; i < data.acts.length - 1; i++) {
+        const in1 = data.assignments.some(a => a.actId === data.acts[i].id && a.studentId === student.id);
+        const in2 = data.assignments.some(a => a.actId === data.acts[i+1].id && a.studentId === student.id);
+        if (in1 && in2) alerts.push({ id: `${student.id}-${i}`, name: `${student.firstName} ${student.lastName}`, act1: data.acts[i].name, act2: data.acts[i+1].name, idx1: i+1, idx2: i+2 });
+      }
+    });
+    return alerts;
+  }, [data]);
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {consecutiveAlerts.length > 0 && (
+          <Card title="Conflits d'enchaînement" icon={AlertTriangle}>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {consecutiveAlerts.map(alert => (
+                      <div key={alert.id} className="p-3 bg-rose-50 border border-rose-100 rounded-xl shadow-sm"><p className="font-black text-rose-700 text-[10px] mb-1 truncate uppercase">{alert.name}</p>
+                          <div className="text-[8px] text-rose-500/80 font-bold uppercase leading-tight italic">{alert.idx1}. {alert.act1} ➔ {alert.idx2}. {alert.act2}</div>
+                      </div>
+                  ))}
+              </div>
+          </Card>
+      )}
+      
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <Card title="Rythme Énergétique du Show" icon={Activity}>
+            <div className="h-72 mt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={energyData}>
+                        <CartesianGrid strokeDasharray="5 5" vertical={false} stroke="#EEF2FF" />
+                        <XAxis dataKey="idx" stroke="#94A3B8" fontSize={10} label={{ value: 'Numéros', position: 'insideBottom', offset: -5 }} />
+                        <YAxis hide domain={[0, 4]} />
+                        <Tooltip contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                        <Line type="monotone" dataKey="val" stroke="#6366F1" strokeWidth={5} dot={{ r: 5, fill: '#6366F1', strokeWidth: 3, stroke: '#fff' }} activeDot={{ r: 7 }} />
+                    </LineChart>
+                </ResponsiveContainer>
+            </div>
+        </Card>
+
+        <Card title="Charge Totale par Formation" icon={BarChart3}>
+            <div className="h-72 mt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={formationWorkloadData} layout="vertical" margin={{ left: 10, right: 30 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#F1F5F9" />
+                        <XAxis type="number" hide />
+                        <YAxis dataKey="name" type="category" stroke="#64748b" fontSize={10} width={80} tickLine={false} axisLine={false} fontWeight="bold" />
+                        <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                        <Bar dataKey="count" radius={[0, 8, 8, 0]} barSize={24}>
+                            {formationWorkloadData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={getFormationStyle(entry.name, formations).pure} />
+                            ))}
+                        </Bar>
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+        </Card>
+      </div>
+
+      <Card title="Classement Individuel des Artistes" icon={ListChecks}>
+        <div className="overflow-x-auto">
+            <table className="w-full text-left">
+                <thead>
+                    <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                        <th className="px-6 py-4">Artiste</th>
+                        <th className="px-6 py-4">Formation</th>
+                        <th className="px-6 py-4 text-right">Apparitions</th>
+                        <th className="px-6 py-4 w-60">Niveau de Charge</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                    {studentData.map(student => {
+                        const style = getFormationStyle(student.formation, formations);
+                        const maxCount = studentData[0]?.count || 1;
+                        const percentage = (student.count / maxCount) * 100;
+                        return (
+                            <tr key={student.id} className="group hover:bg-slate-50 transition-colors">
+                                <td className="px-6 py-4 font-black text-slate-700 text-xs uppercase">{student.name}</td>
+                                <td className="px-6 py-4">
+                                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase ${style.bg} ${style.text}`}>{student.formation}</span>
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                    <div className="inline-flex items-center justify-center w-8 h-8 rounded-xl font-black text-xs bg-indigo-50 text-indigo-700">{student.count}</div>
+                                </td>
+                                <td className="px-6 py-4">
+                                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                        <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${percentage}%`, backgroundColor: style.pure }} />
+                                    </div>
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
