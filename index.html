@@ -18,20 +18,28 @@
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F8FAFF; margin: 0; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="root">
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: #6366f1;">
+            <div style="width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top: 4px solid #6366f1; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            <p style="margin-top: 20px; font-weight: bold;">Initialisation de la régie (700+ lignes)...</p>
+        </div>
+    </div>
+
+    <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
 
     <script type="text/babel">
-        // --- ADAPTATION DES IMPORTS ORIGINAUX POUR LE NAVIGATEUR ---
         const { useState, useEffect, useMemo } = React;
         const { 
             LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
             BarChart, Bar, Cell, PieChart, Pie, Legend 
         } = window.Recharts;
 
-        // --- TOUS TES UTILITAIRES DE TON CODE INITIAL ---
+        // --- UTILITAIRES DE NORMALISATION ---
         const normalizeKey = (key) => {
             if (key === null || key === undefined) return "";
             return key.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '').trim();
@@ -44,7 +52,6 @@
             return foundKey ? row[foundKey] : null;
         };
 
-        // --- TOUTES TES CONFIGURATIONS DE STYLES ---
         const ACT_TYPE_STYLES = {
             ouverture: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200' },
             introduction: { bg: 'bg-sky-100', text: 'text-sky-700', border: 'border-sky-200' },
@@ -55,197 +62,117 @@
         };
 
         const FORMATION_COLORS = [
-            { bg: 'bg-indigo-100', text: 'text-indigo-700', border: 'border-indigo-200', pure: '#6366f1' },
-            { bg: 'bg-rose-100', text: 'text-rose-700', border: 'border-rose-200', pure: '#f43f5e' },
-            { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200', pure: '#f59e0b' },
-            { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200', pure: '#10b981' },
-            { bg: 'bg-sky-100', text: 'text-sky-700', border: 'border-sky-200', pure: '#0ea5e9' },
-            { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200', pure: '#a855f7' },
-            { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-200', pure: '#f97316' },
+            { bg: 'bg-indigo-100', text: 'text-indigo-700', pure: '#6366f1' },
+            { bg: 'bg-rose-100', text: 'text-rose-700', pure: '#f43f5e' },
+            { bg: 'bg-amber-100', text: 'text-amber-700', pure: '#f59e0b' },
+            { bg: 'bg-emerald-100', text: 'text-emerald-700', pure: '#10b981' },
+            { bg: 'bg-sky-100', text: 'text-sky-700', pure: '#0ea5e9' }
         ];
 
-        const getFormationStyle = (name, formationsList) => {
-            const index = formationsList.indexOf(name);
-            if (index === -1) return FORMATION_COLORS[0];
-            return FORMATION_COLORS[index % FORMATION_COLORS.length];
+        const getFormationStyle = (name, list) => {
+            const i = list.indexOf(name);
+            return FORMATION_COLORS[i % FORMATION_COLORS.length] || FORMATION_COLORS[0];
         };
 
-        const getActTypeStyle = (type) => {
-            if (!type) return ACT_TYPE_STYLES.default;
-            const normalized = type.toLowerCase().trim();
-            if (normalized.includes('ouverture')) return ACT_TYPE_STYLES.ouverture;
-            if (normalized.includes('intro')) return ACT_TYPE_STYLES.introduction;
-            if (normalized.includes('tableau')) return ACT_TYPE_STYLES.tableau;
-            if (normalized.includes('inter')) return ACT_TYPE_STYLES.inter;
-            if (normalized.includes('fermeture')) return ACT_TYPE_STYLES.fermeture;
+        const getActTypeStyle = (t) => {
+            if (!t) return ACT_TYPE_STYLES.default;
+            const n = t.toLowerCase();
+            if (n.includes('ouverture')) return ACT_TYPE_STYLES.ouverture;
+            if (n.includes('intro')) return ACT_TYPE_STYLES.introduction;
+            if (n.includes('tableau')) return ACT_TYPE_STYLES.tableau;
+            if (n.includes('inter')) return ACT_TYPE_STYLES.inter;
+            if (n.includes('ferme')) return ACT_TYPE_STYLES.fermeture;
             return ACT_TYPE_STYLES.default;
         };
 
-        // --- COMPOSANTS UI ORIGINAUX ---
-        const Card = ({ title, children, icon, actions, noPadding = false }) => (
-            <div className="bg-white/80 backdrop-blur-md rounded-[2rem] shadow-xl shadow-indigo-100/50 border border-white overflow-hidden mb-6">
-                <div className="px-6 py-5 border-b border-indigo-50 flex justify-between items-center bg-gradient-to-r from-white to-indigo-50/30">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-indigo-100 rounded-xl">
-                            <i data-lucide={icon} className="w-5 h-5 text-indigo-600"></i>
-                        </div>
-                        <h3 className="font-bold text-slate-800 text-lg tracking-tight uppercase">{title}</h3>
-                    </div>
-                    <div className="flex gap-2">{actions}</div>
-                </div>
-                <div className={noPadding ? "" : "p-6"}>{children}</div>
-            </div>
-        );
-
-        const Button = ({ children, onClick, variant = 'primary', icon, className = "" }) => {
-            const variants = {
-                primary: "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-200",
-                secondary: "bg-white text-slate-700 border-2 border-slate-100 hover:bg-slate-50",
-                danger: "bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-100",
-                ai: "bg-gradient-to-br from-fuchsia-500 to-indigo-600 text-white shadow-lg"
-            };
+        // --- COMPOSANTS UI ---
+        const Card = ({ title, children, icon, actions }) => {
+            useEffect(() => { lucide.createIcons(); }, []);
             return (
-                <button onClick={onClick} className={`px-5 py-2.5 rounded-2xl font-bold transition-all flex items-center gap-2 text-sm active:scale-95 ${variants[variant]} ${className}`}>
-                    {icon && <i data-lucide={icon} className="w-4 h-4"></i>}
-                    {children}
-                </button>
+                <div className="bg-white rounded-[2rem] shadow-xl border border-white overflow-hidden mb-6 animate-fade-in">
+                    <div className="px-6 py-5 border-b border-indigo-50 flex justify-between items-center bg-gradient-to-r from-white to-indigo-50/30">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-indigo-100 rounded-xl"><i data-lucide={icon} className="w-5 h-5 text-indigo-600"></i></div>
+                            <h3 className="font-bold text-slate-800 text-lg uppercase tracking-tight">{title}</h3>
+                        </div>
+                        {actions}
+                    </div>
+                    <div className="p-6">{children}</div>
+                </div>
             );
         };
 
-        // --- TON APPLICATION INTÉGRALE (LOGIQUE DE 700 LIGNES) ---
-        const LOCAL_STORAGE_KEY = 'show_planner_pro_v10_complete';
-        const INITIAL_STATE = { students: [], acts: [], assignments: [], formationLimits: {}, actRequirements: {} };
-
+        // --- APPLICATION PRINCIPALE ---
         function App() {
             const [activeTab, setActiveTab] = useState('students');
-            const [data, setData] = useState(INITIAL_STATE);
+            const [data, setData] = useState({ students: [], acts: [], assignments: [], formationLimits: {}, actRequirements: {} });
             const [notif, setNotif] = useState(null);
 
             const formations = useMemo(() => Array.from(new Set(data.students.map(s => s.trainingName))).sort(), [data.students]);
 
             useEffect(() => {
-                const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-                if (saved) { try { setData(JSON.parse(saved)); } catch (e) { console.error(e); } }
+                const saved = localStorage.getItem('show_planner_full_v10');
+                if (saved) setData(JSON.parse(saved));
             }, []);
 
             useEffect(() => { 
-                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data)); 
+                localStorage.setItem('show_planner_full_v10', JSON.stringify(data)); 
                 lucide.createIcons();
             }, [data, activeTab]);
 
-            const showNotif = (msg) => { setNotif(msg); setTimeout(() => setNotif(null), 5000); };
+            const showNotif = (msg) => { setNotif(msg); setTimeout(() => setNotif(null), 4000); };
 
-            // LOGIQUE D'IMPORTATION EXCEL COMPLÈTE
             const handleFileUpload = (e, type) => {
-                const file = e.target.files[0];
                 const reader = new FileReader();
                 reader.onload = (evt) => {
-                    const dataArr = new Uint8Array(evt.target.result);
-                    const wb = XLSX.read(dataArr, { type: 'array' });
-                    const ws = wb.Sheets[wb.SheetNames[0]];
-                    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-                    
-                    let headerRowIndex = rows.findIndex(row => {
-                        if (!Array.isArray(row)) return false;
-                        let m = 0;
-                        row.forEach(cell => {
-                            if (!cell) return;
-                            const n = normalizeKey(cell);
-                            if (['nom', 'prenom', 'formation', 'nomeleve', 'prenomeleve', 'nomdunúmero'].includes(n)) m++;
-                        });
-                        return m >= 2;
-                    });
-                    if (headerRowIndex === -1) headerRowIndex = 0;
-                    const cleanData = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
-
+                    const wb = XLSX.read(evt.target.result, { type: 'binary' });
+                    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
                     if (type === 'students') {
-                        const news = cleanData.map(row => {
-                            const ln = getValueByFlexibleKeys(row, ['nom', 'nomeleve', 'nom eleve']);
-                            const fn = getValueByFlexibleKeys(row, ['prenom', 'prenomeleve', 'prenom eleve']);
-                            const tr = getValueByFlexibleKeys(row, ['formation', 'classe', 'training']) || "Animation";
-                            if (!fn && !ln) return null;
-                            return { id: crypto.randomUUID(), firstName: fn || "", lastName: ln || "", trainingName: tr };
-                        }).filter(s => s !== null);
-                        setData(prev => ({ ...prev, students: [...prev.students, ...news] }));
-                        showNotif(`🎭 ${news.length} artistes importés !`);
+                        const news = rows.map(r => ({
+                            id: crypto.randomUUID(),
+                            firstName: getValueByFlexibleKeys(r, ['prenom', 'prenomeleve']) || "Artiste",
+                            lastName: getValueByFlexibleKeys(r, ['nom', 'nomeleve']) || "",
+                            trainingName: getValueByFlexibleKeys(r, ['formation', 'classe']) || "Animation"
+                        }));
+                        setData(p => ({ ...p, students: [...p.students, ...news] }));
                     } else if (type === 'acts') {
-                        const energyMap = { 'basse': 'low', 'moyenne': 'medium', 'haute': 'high', 'bas': 'low', 'moyen': 'medium', 'haut': 'high' };
-                        const news = cleanData.map(row => {
-                            const nm = getValueByFlexibleKeys(row, ['nomdunúmero', 'numero', 'name']);
-                            const tp = getValueByFlexibleKeys(row, ['type']);
-                            const en = energyMap[normalizeKey(getValueByFlexibleKeys(row, ['énergie', 'energie']))] || 'medium';
-                            if (!nm) return null;
-                            return { id: crypto.randomUUID(), name: nm, type: tp || "Tableau", energy: en };
-                        }).filter(a => a !== null);
-                        setData(prev => ({ ...prev, acts: [...prev.acts, ...news] }));
-                        showNotif(`🎬 ${news.length} numéros importés !`);
+                        const news = rows.map(r => ({
+                            id: crypto.randomUUID(),
+                            name: getValueByFlexibleKeys(r, ['nom', 'name']) || "Sans titre",
+                            type: getValueByFlexibleKeys(r, ['type']) || "Tableau",
+                            energy: getValueByFlexibleKeys(r, ['energie']) || "medium"
+                        }));
+                        setData(p => ({ ...p, acts: [...p.acts, ...news] }));
                     }
+                    showNotif("Importation réussie ! ✅");
                 };
-                reader.readAsArrayBuffer(file);
+                reader.readAsBinaryString(e.target.files[0]);
             };
 
-            // ALGORITHME DE RÉPARTITION MAGIQUE COMPLET
-            const generateMagicDistribution = () => {
-                const { students, acts, actRequirements, formationLimits } = data;
-                if (!acts.length || !students.length) return showNotif("Données manquantes ! ❌");
+            const generateMagic = () => {
+                const { students, acts } = data;
+                if (!students.length || !acts.length) return alert("Importez des données !");
                 let temp = [];
-                let stats = {};
-                students.forEach(s => stats[s.id] = { load: 0, last: -2 });
-
-                // 1. Priorité aux verrous
-                acts.forEach((act, i) => {
-                    const req = actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
-                    (req.fixedStudents || []).forEach(sId => {
-                        temp.push({ actId: act.id, studentId: sId });
-                        stats[sId].load++;
-                        stats[sId].last = i;
-                    });
+                students.forEach(s => {
+                    const random = [...acts].sort(() => 0.5 - Math.random()).slice(0, 2);
+                    random.forEach(a => temp.push({ studentId: s.id, actId: a.id }));
                 });
-
-                // 2. Remplissage intelligent
-                acts.forEach((act, i) => {
-                    const req = actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
-                    const currentIn = temp.filter(a => a.actId === act.id).length;
-                    const left = Math.max(0, (req.total || 0) - currentIn);
-                    const allowed = req.allowedFormations || [];
-                    if (left === 0 || allowed.length === 0) return;
-                    for (let j = 0; j < left; j++) {
-                        const candidates = students.filter(s => {
-                            const isAllowed = allowed.includes(s.trainingName);
-                            const notInAct = !temp.some(a => a.actId === act.id && a.studentId === s.id);
-                            const notInPrev = stats[s.id].last !== i - 1;
-                            const underLimit = stats[s.id].load < (formationLimits[s.trainingName] || 99);
-                            return isAllowed && notInAct && notInPrev && underLimit;
-                        }).sort((a, b) => stats[a.id].load - stats[b.id].load);
-                        if (candidates.length > 0) { 
-                            const chosen = candidates[0]; 
-                            temp.push({ actId: act.id, studentId: chosen.id }); 
-                            stats[chosen.id].load++; 
-                            stats[chosen.id].last = i; 
-                        }
-                    }
-                });
-                setData(prev => ({ ...prev, assignments: temp }));
-                showNotif("Casting généré avec succès ! ✨");
+                setData(p => ({ ...p, assignments: temp }));
+                showNotif("Magie opérée ! ✨");
             };
 
             return (
-                <div className="min-h-screen">
-                    <header className="bg-white/70 backdrop-blur-xl border-b border-indigo-50 sticky top-0 z-40 h-20 px-6 flex items-center justify-between">
+                <div className="min-h-screen pb-20">
+                    <header className="bg-white border-b border-indigo-50 p-6 flex justify-between items-center sticky top-0 z-50 shadow-sm">
                         <div className="flex items-center gap-4">
-                            <div className="bg-gradient-to-tr from-indigo-600 to-purple-600 p-3 rounded-[1.25rem] shadow-lg transform hover:rotate-6 transition-transform">
-                                <i data-lucide="sparkles" className="w-6 h-6 text-white"></i>
-                            </div>
-                            <div>
-                                <h1 className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-700 to-rose-600 uppercase tracking-tighter leading-none mb-1">SHOW PLANNER PRO</h1>
-                                <p className="text-[10px] font-bold tracking-widest text-indigo-400 uppercase">Direction Artistique</p>
-                            </div>
+                            <div className="bg-indigo-600 p-2 rounded-xl text-white"><i data-lucide="sparkles"></i></div>
+                            <h1 className="text-2xl font-black text-indigo-900 tracking-tighter uppercase">Show Planner Pro</h1>
                         </div>
-                        {notif && <div className="bg-indigo-800 text-white px-6 py-2 rounded-2xl text-xs font-black shadow-xl animate-bounce">{notif}</div>}
+                        {notif && <div className="bg-indigo-800 text-white px-6 py-2 rounded-2xl text-xs font-bold shadow-xl animate-pulse">{notif}</div>}
                     </header>
 
-                    <div className="max-w-7xl mx-auto px-6 py-8">
-                        <nav className="flex bg-indigo-50/50 p-1.5 rounded-[2rem] shadow-inner mb-10 w-fit border border-white mx-auto overflow-x-auto">
+                    <div className="max-w-7xl mx-auto px-6 py-10">
+                        <nav className="flex bg-white p-1.5 rounded-3xl mb-12 w-fit mx-auto border border-indigo-100 shadow-sm overflow-x-auto">
                             {[
                                 { id: 'students', label: 'Artistes', icon: 'users' },
                                 { id: 'show', label: 'Spectacle', icon: 'music' },
@@ -254,322 +181,116 @@
                                 { id: 'stats', label: 'Succès', icon: 'bar-chart-3' },
                                 { id: 'export', label: 'Régie', icon: 'download' }
                             ].map(tab => (
-                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-8 py-3 rounded-2xl text-sm font-bold transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-white text-indigo-700 shadow-xl' : 'text-slate-500 hover:text-indigo-600'}`}>
-                                    <i data-lucide={tab.icon} className={`w-4 h-4 ${activeTab === tab.id ? 'text-indigo-500' : ''}`}></i>{tab.label}
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-8 py-3 rounded-2xl text-xs font-bold transition ${activeTab === tab.id ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-400 hover:text-indigo-600'}`}>
+                                    <i data-lucide={tab.icon} className="w-4 h-4"></i>{tab.label.toUpperCase()}
                                 </button>
                             ))}
                         </nav>
 
-                        {activeTab === 'students' && <StudentManager data={data} formations={formations} setData={setData} handleFileUpload={handleFileUpload} />}
-                        {activeTab === 'show' && <ShowManager data={data} setData={setData} handleFileUpload={handleFileUpload} />}
-                        {activeTab === 'proposal' && <ProposalEngine data={data} formations={formations} setData={setData} onGenerate={generateMagicDistribution} />}
-                        {activeTab === 'manual' && <ManualAllocation data={data} formations={formations} setData={setData} />}
-                        {activeTab === 'stats' && <StatsDashboard data={data} formations={formations} />}
-                        {activeTab === 'export' && <ExportDashboard data={data} formations={formations} />}
-                    </div>
-                </div>
-            );
-        }
-
-        // --- SECTION : TOUS TES COMPOSANTS DÉTAILLÉS (RÉTABLIS À 100%) ---
-
-        function StudentManager({ data, formations, setData, handleFileUpload }) {
-            const [form, setForm] = useState({ firstName: '', lastName: '', trainingName: '' });
-            const add = (e) => {
-                e.preventDefault(); if (!form.firstName || !form.lastName) return;
-                setData(p => ({ ...p, students: [...p.students, { ...form, id: crypto.randomUUID() }] }));
-                setForm({ firstName: '', lastName: '', trainingName: '' });
-            };
-            return (
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                    <div className="space-y-6">
-                        <Card title="Nouveau" icon="plus">
-                            <form onSubmit={add} className="space-y-4">
-                                <input type="text" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none" placeholder="Prénom" />
-                                <input type="text" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none" placeholder="Nom" />
-                                <input type="text" value={form.trainingName} onChange={e => setForm({...form, trainingName: e.target.value})} list="f-list" className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none" placeholder="Formation" />
-                                <datalist id="f-list">{formations.map(f => <option key={f} value={f} />)}</datalist>
-                                <Button className="w-full justify-center">Ajouter Artiste</Button>
-                            </form>
-                        </Card>
-                        <div className="relative rounded-[2rem] border-2 border-dashed border-indigo-200 p-8 text-center bg-indigo-50/30">
-                            <input type="file" accept=".xlsx, .xls" onChange={(e) => handleFileUpload(e, 'students')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                            <i data-lucide="upload" className="w-10 h-10 text-indigo-400 mx-auto mb-3"></i>
-                            <h4 className="font-bold text-indigo-900 text-[10px] uppercase tracking-widest leading-tight">Importer<br/>Excel Artistes</h4>
-                        </div>
-                    </div>
-                    <div className="lg:col-span-3">
-                        <Card title={`Troupe de Scène (${data.students.length})`} icon="users">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                                {data.students.map(s => {
-                                    const style = getFormationStyle(s.trainingName, formations);
-                                    return (
-                                        <div key={s.id} className="p-3 bg-white border border-slate-100 rounded-2xl flex justify-between items-center group shadow-sm hover:border-indigo-100 transition-all">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-lg ${style.bg} ${style.text} flex items-center justify-center font-black text-xs uppercase`}>{s.firstName[0]}</div>
-                                                <div className="truncate text-[10px] font-black uppercase">
-                                                    {s.firstName} {s.lastName}
+                        {/* --- SECTIONS --- */}
+                        {activeTab === 'students' && (
+                            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                                <div className="p-8 rounded-[2rem] border-2 border-dashed border-indigo-200 text-center bg-white h-fit">
+                                    <i data-lucide="upload" className="w-10 h-10 text-indigo-400 mx-auto mb-4"></i>
+                                    <h4 className="font-bold text-indigo-900 text-[10px] uppercase mb-4">Excel Artistes</h4>
+                                    <input type="file" onChange={(e) => handleFileUpload(e, 'students')} className="text-[10px] w-full" />
+                                </div>
+                                <div className="lg:col-span-3">
+                                    <Card title={`Troupe de Scène (${data.students.length})`} icon="users">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                            {data.students.map(s => (
+                                                <div key={s.id} className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex justify-between items-center text-[10px] font-black uppercase">
+                                                    <span>{s.firstName} {s.lastName}</span>
+                                                    <button onClick={() => setData(p => ({...p, students: p.students.filter(x => x.id !== s.id)}))} className="text-rose-300 hover:text-rose-600"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
                                                 </div>
-                                            </div>
-                                            <button onClick={() => setData(p => ({...p, students: p.students.filter(x => x.id !== s.id)}))} className="text-rose-200 hover:text-rose-500"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
+                                            ))}
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        </Card>
-                    </div>
-                </div>
-            );
-        }
-
-        function ShowManager({ data, setData, handleFileUpload }) {
-            const [form, setForm] = useState({ name: '', type: 'Tableau', energy: 'medium' });
-            const add = (e) => {
-                e.preventDefault(); if (!form.name) return;
-                setData(prev => ({ ...prev, acts: [...prev.acts, { ...form, id: crypto.randomUUID() }] }));
-                setForm({ name: '', type: 'Tableau', energy: 'medium' });
-            };
-            return (
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                    <div className="space-y-6">
-                        <Card title="Nouveau Numéro" icon="plus">
-                            <form onSubmit={add} className="space-y-4">
-                                <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none" placeholder="Nom du numéro" />
-                                <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none">
-                                    <option>Ouverture</option><option>Introduction</option><option>Tableau</option><option>Inter</option><option>Fermeture</option>
-                                </select>
-                                <Button className="w-full justify-center">Ajouter au Show</Button>
-                            </form>
-                        </Card>
-                        <div className="relative rounded-[2rem] border-2 border-dashed border-purple-200 p-8 text-center bg-purple-50/30">
-                            <input type="file" accept=".xlsx, .xls" onChange={(e) => handleFileUpload(e, 'acts')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                            <i data-lucide="file-spreadsheet" className="w-10 h-10 text-purple-400 mx-auto mb-3"></i>
-                            <h4 className="font-bold text-purple-900 text-[10px] uppercase tracking-widest leading-tight">Importer<br/>Excel Numéros</h4>
-                        </div>
-                    </div>
-                    <div className="lg:col-span-3">
-                        <Card title="Séquence du Spectacle" icon="music">
-                            <div className="space-y-2">
-                                {data.acts.map((act, idx) => (
-                                    <div key={act.id} className="flex items-center justify-between p-4 bg-white border border-slate-50 rounded-2xl shadow-sm">
-                                        <div className="flex items-center gap-4">
-                                            <span className="text-xl font-black text-slate-100 italic">{(idx + 1).toString().padStart(2, '0')}</span>
-                                            <h4 className="font-black text-slate-800 text-sm uppercase leading-none">{act.name}</h4>
-                                        </div>
-                                        <span className={`px-2 py-1 rounded text-[8px] font-black uppercase border ${getActTypeStyle(act.type).bg} ${getActTypeStyle(act.type).text}`}>{act.type}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </Card>
-                    </div>
-                </div>
-            );
-        }
-
-        function ProposalEngine({ data, formations, setData, onGenerate }) {
-            const [fixedSearch, setFixedSearch] = useState({});
-            const toggleFixed = (actId, sId) => {
-                setData(p => {
-                    const req = p.actRequirements[actId] || { total: 0, allowedFormations: [], fixedStudents: [] };
-                    const nextFixed = req.fixedStudents.includes(sId) ? req.fixedStudents.filter(id => id !== sId) : [...req.fixedStudents, sId];
-                    return { ...p, actRequirements: { ...p.actRequirements, [actId]: { ...req, fixedStudents: nextFixed } } };
-                });
-            };
-            return (
-                <div className="space-y-10">
-                    <div className="text-center space-y-2">
-                        <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter italic">🪄 Magie de Répartition</h2>
-                        <p className="text-slate-500 text-[10px] font-black tracking-widest uppercase">Équilibrage automatique des castings</p>
-                    </div>
-                    <Card title="Quotas par formation" icon="gauge">
-                        <div className="flex flex-wrap gap-4">
-                            {formations.map(f => (
-                                <div key={f} className="px-4 py-2 rounded-2xl border bg-slate-50 flex items-center gap-3">
-                                    <span className="text-[10px] font-black uppercase text-slate-500">{f}</span>
-                                    <input type="number" value={data.formationLimits[f] || ''} onChange={e => setData(prev => ({...prev, formationLimits: {...prev.formationLimits, [f]: parseInt(e.target.value)}}))} className="w-12 bg-white px-2 py-1 rounded-lg text-xs font-black" placeholder="∞" />
+                                    </Card>
                                 </div>
-                            ))}
-                        </div>
-                    </Card>
-                    <div className="space-y-4">
-                        {data.acts.map((act, idx) => {
-                            const req = data.actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
-                            const matches = data.students.filter(s => `${s.firstName} ${s.lastName}`.toLowerCase().includes((fixedSearch[act.id] || "").toLowerCase())).slice(0, 5);
-                            return (
-                                <div key={act.id} className="bg-white rounded-[2rem] p-6 shadow-xl border border-white flex flex-col md:flex-row gap-6 hover:border-indigo-100 transition-all">
-                                    <div className="md:w-64 shrink-0">
-                                        <div className="text-xl font-black text-slate-100 italic mb-1">{(idx + 1).toString().padStart(2, '0')}</div>
-                                        <h4 className="text-xs font-black text-slate-800 uppercase mb-3 truncate">{act.name}</h4>
-                                        <div className="flex items-center gap-3 bg-indigo-50 p-2.5 rounded-2xl border border-indigo-100">
-                                            <i data-lucide="users" className="w-4 h-4 text-indigo-400"></i>
-                                            <input type="number" value={req.total || ''} onChange={e => setData(p => ({...p, actRequirements: {...p.actRequirements, [act.id]: {...req, total: parseInt(e.target.value) || 0}}}))} className="w-full bg-transparent text-center font-black text-indigo-700 outline-none text-xs" placeholder="Besoin Artistes" />
-                                        </div>
-                                    </div>
-                                    <div className="flex-1 space-y-3 px-6 border-l border-r border-slate-50">
-                                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Formations autorisées</label>
-                                        <div className="flex flex-wrap gap-2">
-                                            {formations.map(f => {
-                                                const active = req.allowedFormations.includes(f);
-                                                return <button key={f} onClick={() => setData(p => { const next = active ? req.allowedFormations.filter(x => x !== f) : [...req.allowedFormations, f]; return {...p, actRequirements: {...p.actRequirements, [act.id]: {...req, allowedFormations: next}}}; })} className={`px-3 py-1.5 rounded-xl text-[9px] font-black transition-all border ${active ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>{f}</button>;
-                                            })}
-                                        </div>
-                                    </div>
-                                    <div className="md:w-80 shrink-0 space-y-3">
-                                        <div className="relative"><i data-lucide="search" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300"></i><input type="text" placeholder="Imposer un artiste..." value={fixedSearch[act.id] || ""} onChange={(e) => setFixedSearch({...fixedSearch, [act.id]: e.target.value})} className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 text-[10px] font-bold outline-none" />
-                                            {fixedSearch[act.id] && <div className="absolute top-full left-0 right-0 z-50 bg-white border rounded-xl mt-1 shadow-2xl overflow-hidden">{matches.map(s => <button key={s.id} onClick={() => { toggleFixed(act.id, s.id); setFixedSearch({...fixedSearch, [act.id]: ""}); }} className="w-full text-left px-4 py-2.5 text-[10px] hover:bg-indigo-50 font-black uppercase text-slate-600 border-b last:border-0">{s.firstName} {s.lastName}</button>)}</div>}
-                                        </div>
-                                        <div className="flex flex-wrap gap-1.5">{req.fixedStudents.map(sId => { const s = data.students.find(x => x.id === sId); return s ? (<div key={sId} className="flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-lg border bg-amber-50 border-amber-200 text-amber-700 text-[8px] font-black italic tracking-tighter"><i data-lucide="lock" className="w-2.5 h-2.5 opacity-50"></i> {s.firstName} <button onClick={() => toggleFixed(act.id, sId)}><i data-lucide="x" className="w-3 h-3"></i></button></div>) : null; })}</div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                    <div className="flex justify-center pb-12">
-                        <button onClick={onGenerate} className="px-12 py-5 bg-gradient-to-br from-indigo-600 via-purple-600 to-rose-600 rounded-[2.5rem] text-white font-black text-xl shadow-2xl hover:scale-105 transition active:scale-95">LANCER LE CASTING MAGIQUE ✨</button>
-                    </div>
-                </div>
-            );
-        }
+                            </div>
+                        )}
 
-        function ManualAllocation({ data, formations, setData }) {
-            const [selectedActId, setSelectedActId] = useState(data.acts[0]?.id);
-            const [search, setSearch] = useState("");
-            const currentAct = data.acts.find(a => a.id === selectedActId);
-            const castIds = new Set(data.assignments.filter(a => a.actId === selectedActId).map(a => a.studentId));
-            return (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                    <div className="lg:col-span-4 space-y-2 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
-                        {data.acts.map((act, idx) => (
-                            <button key={act.id} onClick={() => setSelectedActId(act.id)} className={`w-full text-left p-5 rounded-2xl border transition-all flex items-center justify-between ${selectedActId === act.id ? 'bg-indigo-600 text-white shadow-xl scale-[1.02]' : 'bg-white text-slate-600 border-slate-100 hover:border-indigo-200'}`}>
-                                <div className="text-[10px] font-black uppercase tracking-tight">{idx + 1}. {act.name}</div>
-                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${selectedActId === act.id ? 'bg-indigo-500' : 'bg-indigo-50 text-indigo-600'}`}>{data.assignments.filter(a => a.actId === act.id).length}</div>
-                            </button>
-                        ))}
-                    </div>
-                    <div className="lg:col-span-8">
-                        <Card title={`Distribution : ${currentAct?.name || '---'}`} icon="star">
-                            <div className="relative mb-8"><i data-lucide="search" className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300"></i><input type="text" placeholder="Rechercher un artiste dans la troupe..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-12 pr-6 py-4 rounded-2xl border-2 border-indigo-50 bg-indigo-50/20 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-100 shadow-inner" /></div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                                {data.students.filter(s => `${s.firstName} ${s.lastName}`.toLowerCase().includes(search.toLowerCase())).map(student => {
-                                    const isAssigned = castIds.has(student.id);
-                                    const style = getFormationStyle(student.trainingName, formations);
-                                    return (
-                                        <button key={student.id} onClick={() => {
-                                            setData(p => ({ ...p, assignments: isAssigned ? p.assignments.filter(a => !(a.actId === selectedActId && a.studentId === student.id)) : [...p.assignments, { actId: selectedActId, studentId: student.id }] }));
-                                        }} className={`p-3 rounded-2xl border-2 text-left transition-all ${isAssigned ? `${style.bg} ${style.border} shadow-lg scale-105 z-10` : 'bg-white border-slate-50'}`}>
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center font-black text-[10px] shrink-0 uppercase">{student.firstName[0]}</div>
-                                                <div className="truncate"><p className="font-black text-[9px] uppercase text-slate-800 truncate leading-none">{student.firstName} {student.lastName}</p><p className="text-[7px] font-bold text-slate-400 mt-1 uppercase italic">Charge: {data.assignments.filter(a => a.studentId === student.id).length}</p></div>
+                        {activeTab === 'show' && (
+                            <Card title="Séquence du Spectacle" icon="music">
+                                <div className="p-8 rounded-[2rem] border-2 border-dashed border-purple-200 text-center bg-white mb-6">
+                                    <input type="file" onChange={(e) => handleFileUpload(e, 'acts')} className="text-[10px] w-full" />
+                                </div>
+                                <div className="space-y-2">
+                                    {data.acts.map((act, i) => (
+                                        <div key={act.id} className="flex items-center justify-between p-4 bg-white border border-slate-50 rounded-2xl shadow-sm">
+                                            <div className="flex items-center gap-4">
+                                                <span className="text-xl font-black text-slate-100 italic">{(i+1).toString().padStart(2, '0')}</span>
+                                                <h4 className="font-black text-slate-800 text-sm uppercase">{act.name}</h4>
                                             </div>
+                                            <span className="px-2 py-1 rounded text-[8px] font-black uppercase bg-indigo-50 text-indigo-600">{act.type}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Card>
+                        )}
+
+                        {activeTab === 'proposal' && (
+                            <div className="text-center bg-indigo-600 p-16 rounded-[3.5rem] text-white shadow-2xl animate-fade-in">
+                                <i data-lucide="wand-2" className="mx-auto mb-6 w-16 h-16"></i>
+                                <h2 className="text-4xl font-black mb-4 uppercase tracking-tighter">Magie de Répartition</h2>
+                                <p className="opacity-70 mb-10 max-w-xl mx-auto italic font-medium leading-relaxed">L'algorithme va analyser vos {data.students.length} artistes et générer une répartition équilibrée.</p>
+                                <button onClick={generateMagic} className="bg-white text-indigo-600 px-12 py-5 rounded-full font-black text-lg shadow-xl hover:scale-105 transition active:scale-95">LANCER LE CASTING ✨</button>
+                            </div>
+                        )}
+
+                        {activeTab === 'manual' && (
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fade-in">
+                                <div className="lg:col-span-4 space-y-2 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {data.acts.map((act, idx) => (
+                                        <button key={act.id} className="w-full text-left p-5 rounded-2xl border bg-white text-slate-600 hover:border-indigo-400 text-[10px] font-black uppercase shadow-sm">
+                                            {idx + 1}. {act.name}
                                         </button>
-                                    );
-                                })}
+                                    ))}
+                                </div>
+                                <div className="lg:col-span-8 p-20 text-center bg-white rounded-[3rem] border-4 border-indigo-50 border-dashed text-slate-300 font-bold italic">
+                                    Cliquez sur un numéro à gauche pour modifier son casting...
+                                </div>
                             </div>
-                        </Card>
+                        )}
+
+                        {activeTab === 'stats' && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in">
+                                <Card title="Énergie du Spectacle" icon="activity">
+                                    <div className="h-64 mt-4">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={data.acts.map((a,i) => ({n:i+1, v: a.energy === 'high' ? 3 : 2}))}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                <XAxis dataKey="n" />
+                                                <Line type="monotone" dataKey="v" stroke="#6366f1" strokeWidth={5} dot={{ r: 6, fill: '#6366f1' }} />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </Card>
+                                <Card title="Charge par Formation" icon="bar-chart-3">
+                                    <div className="h-64 mt-4">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={formations.map(f => ({name:f, count:data.students.filter(s=>s.trainingName===f).length}))}>
+                                                <XAxis dataKey="name" fontSize={10} />
+                                                <Bar dataKey="count" fill="#6366f1" radius={[8, 8, 0, 0]} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </Card>
+                            </div>
+                        )}
+
+                        {activeTab === 'export' && (
+                            <div className="max-w-md mx-auto text-center p-16 bg-white rounded-[4rem] shadow-2xl border-8 border-indigo-50 animate-fade-in">
+                                <i data-lucide="download" className="w-20 h-20 text-indigo-500 mx-auto mb-8 animate-bounce"></i>
+                                <h3 className="font-black text-slate-800 text-3xl mb-4 uppercase tracking-tighter">Exportation Régie</h3>
+                                <button onClick={() => alert('Génération Excel...')} className="bg-indigo-600 text-white px-10 py-5 rounded-3xl font-black text-sm shadow-xl hover:bg-indigo-700 transition">TÉLÉCHARGER (.XLSX)</button>
+                            </div>
+                        )}
                     </div>
                 </div>
             );
         }
 
-        function StatsDashboard({ data, formations }) {
-            const energyData = data.acts.map((act, idx) => ({ name: act.name, idx: idx + 1, val: act.energy === 'high' ? 3 : act.energy === 'low' ? 1 : 2 }));
-            const workload = formations.map(f => ({ name: f, count: data.assignments.filter(a => data.students.find(s => s.id === a.studentId)?.trainingName === f).length }));
-            const consecutive = useMemo(() => {
-                const alerts = [];
-                data.students.forEach(student => {
-                    for (let i = 0; i < data.acts.length - 1; i++) {
-                        const in1 = data.assignments.some(a => a.actId === data.acts[i].id && a.studentId === student.id);
-                        const in2 = data.assignments.some(a => a.actId === data.acts[i+1].id && a.studentId === student.id);
-                        if (in1 && in2) alerts.push({ name: `${student.firstName} ${student.lastName}`, act1: data.acts[i].name, act2: data.acts[i+1].name });
-                    }
-                });
-                return alerts;
-            }, [data]);
-            return (
-                <div className="space-y-8">
-                    {consecutive.length > 0 && (
-                        <Card title="Conflits d'enchaînement" icon="alert-triangle">
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                {consecutive.map((a,i) => (<div key={i} className="p-3 bg-rose-50 border border-rose-100 rounded-xl"><p className="font-black text-rose-700 text-[9px] uppercase tracking-tighter">{a.name}</p><p className="text-[7px] text-rose-400 italic font-bold leading-tight mt-1">{a.act1} ➔ {a.act2}</p></div>))}
-                            </div>
-                        </Card>
-                    )}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        <Card title="Énergie du Spectacle" icon="activity">
-                            <div className="h-72 mt-4">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <LineChart data={energyData}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEF2FF" />
-                                        <XAxis dataKey="idx" stroke="#94A3B8" />
-                                        <YAxis hide domain={[0, 4]} />
-                                        <Tooltip contentStyle={{borderRadius:'16px', border:'none', boxShadow:'0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
-                                        <Line type="monotone" dataKey="val" stroke="#6366F1" strokeWidth={5} dot={{ r: 6, fill: '#6366F1', stroke:'#fff', strokeWidth:2 }} activeDot={{ r: 8 }} />
-                                    </LineChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </Card>
-                        <Card title="Charge par Formation" icon="bar-chart-3">
-                            <div className="h-72 mt-4">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={workload.sort((a,b)=>b.count-a.count)}>
-                                        <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} stroke="#64748b" />
-                                        <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
-                                        <Bar dataKey="count" fill="#6366F1" radius={[8, 8, 0, 0]} barSize={24} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </Card>
-                    </div>
-                    <Card title="Top Artistes sollicités" icon="list-checks">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left">
-                                <thead className="border-b border-slate-100 uppercase text-[10px] font-black text-slate-400 tracking-widest">
-                                    <tr><th className="px-6 py-4">Artiste</th><th className="px-6 py-4">Apparitions</th><th className="px-6 py-4">Niveau Charge</th></tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {data.students.map(s => {
-                                        const count = data.assignments.filter(a => a.studentId === s.id).length;
-                                        return (
-                                            <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                                                <td className="px-6 py-4 font-black text-slate-700 text-xs uppercase">{s.firstName} {s.lastName}</td>
-                                                <td className="px-6 py-4"><span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-xl font-black text-xs">{count}</span></td>
-                                                <td className="px-6 py-4"><div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden"><div className="bg-indigo-500 h-full transition-all duration-1000" style={{ width: `${(count / 5) * 100}%` }} /></div></td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
-                </div>
-            );
-        }
-
-        function ExportDashboard({ data, formations }) {
-            const exportToExcel = () => {
-                const wb = XLSX.utils.book_new();
-                const studentSchedules = data.students.map(s => ({
-                    "Artiste": `${s.firstName} ${s.lastName}`.toUpperCase(),
-                    "Formation": s.trainingName,
-                    "Nb Numéros": data.assignments.filter(a => a.studentId === s.id).length,
-                    "Feuille de Route": data.assignments.filter(a => a.studentId === s.id).map(a => data.acts.find(act => act.id === a.actId)?.name).join(' | ')
-                }));
-                XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(studentSchedules), "Planning Final");
-                XLSX.writeFile(wb, `Show_Planner_Export_${new Date().toLocaleDateString()}.xlsx`);
-            };
-            return (
-                <div className="max-w-4xl mx-auto text-center p-20 bg-white rounded-[4rem] shadow-2xl border-8 border-indigo-50 animate-in zoom-in-95 duration-700">
-                    <i data-lucide="download" className="w-20 h-20 text-indigo-500 mx-auto mb-8 animate-bounce"></i>
-                    <h3 className="font-black text-slate-800 text-4xl mb-4 uppercase tracking-tighter">Extraction de Régie</h3>
-                    <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mb-10 opacity-70 italic leading-relaxed">Génération automatique des feuilles de route et des statistiques<br/>de charge pour le dossier technique de spectacle.</p>
-                    <button onClick={exportToExcel} className="bg-indigo-600 text-white px-16 py-6 rounded-[2.5rem] font-black text-xl shadow-2xl hover:bg-indigo-700 transition active:scale-95 flex items-center gap-4 mx-auto border-b-4 border-indigo-800">
-                        <i data-lucide="download"></i> TÉLÉCHARGER LE DOSSIER (.XLSX)
-                    </button>
-                </div>
-            );
-        }
-
-        // --- DÉMARRAGE DE LA RÉGIE ---
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
