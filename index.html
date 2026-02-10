@@ -18,31 +18,14 @@
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F8FAFF; margin: 0; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
-        .energy-peak { color: #f43f5e; }
-        .energy-flow { color: #6366f1; }
-        
-        #loader-init {
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            height: 100vh; color: #6366f1; background: #F8FAFF;
-        }
-        .spinner {
-            width: 50px; height: 50px; border: 5px solid #eef2ff; border-top: 5px solid #6366f1;
-            border-radius: 50%; animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
-    <div id="root">
-        <div id="loader-init">
-            <div class="spinner"></div>
-            <p style="margin-top: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;">Initialisation de la Régie...</p>
-        </div>
-    </div>
+    <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-        const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } = window.Recharts;
+        const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } = window.Recharts || {};
 
         // --- UTILITAIRES ---
         const normalizeKey = (k) => k ? k.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '').trim() : "";
@@ -60,12 +43,12 @@
         };
 
         const ACT_TYPE_STYLES = {
-            ouverture: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200', icon: 'zap' },
-            introduction: { bg: 'bg-sky-100', text: 'text-sky-700', border: 'border-sky-200', icon: 'info' },
-            tableau: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200', icon: 'image' },
-            inter: { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200', icon: 'pause' },
-            fermeture: { bg: 'bg-rose-100', text: 'text-rose-700', border: 'border-rose-200', icon: 'flag' },
-            default: { bg: 'bg-slate-100', text: 'text-slate-600', border: 'border-slate-200', icon: 'music' }
+            ouverture: { bg: 'bg-amber-100', text: 'text-amber-700' },
+            introduction: { bg: 'bg-sky-100', text: 'text-sky-700' },
+            tableau: { bg: 'bg-purple-100', text: 'text-purple-700' },
+            inter: { bg: 'bg-emerald-100', text: 'text-emerald-700' },
+            fermeture: { bg: 'bg-rose-100', text: 'text-rose-700' },
+            default: { bg: 'bg-slate-100', text: 'text-slate-600' }
         };
 
         const ENERGY_STYLES = {
@@ -75,16 +58,22 @@
         };
 
         const FORMATION_COLORS = [
-            { bg: 'bg-indigo-100', text: 'text-indigo-700', border: 'border-indigo-200' },
-            { bg: 'bg-rose-100', text: 'text-rose-700', border: 'border-rose-200' },
-            { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200' },
-            { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200' }
+            { bg: 'bg-indigo-100', text: 'text-indigo-700' },
+            { bg: 'bg-rose-100', text: 'text-rose-700' },
+            { bg: 'bg-amber-100', text: 'text-amber-700' },
+            { bg: 'bg-emerald-100', text: 'text-emerald-700' }
         ];
 
+        const getFormationStyle = (name, list) => {
+            const i = list.indexOf(name);
+            return FORMATION_COLORS[i % FORMATION_COLORS.length] || FORMATION_COLORS[0];
+        };
+
+        // --- COMPOSANTS UI ---
         const Card = ({ title, children, icon, actions }) => {
             useEffect(() => { lucide.createIcons(); }, []);
             return (
-                <div className="bg-white rounded-[2.5rem] shadow-xl border border-white overflow-hidden mb-8 animate-in fade-in duration-700">
+                <div className="bg-white rounded-[2.5rem] shadow-xl border border-white overflow-hidden mb-8">
                     <div className="px-8 py-6 border-b border-indigo-50 flex justify-between items-center bg-gradient-to-r from-white to-indigo-50/20">
                         <div className="flex items-center gap-4">
                             <div className="p-3 bg-indigo-100 rounded-2xl"><i data-lucide={icon} className="w-6 h-6 text-indigo-600"></i></div>
@@ -128,7 +117,7 @@
                             id: crypto.randomUUID(),
                             firstName: getValueByFlexibleKeys(r, ['prenom', 'prenomeleve']) || "Artiste",
                             lastName: getValueByFlexibleKeys(r, ['nom', 'nomeleve']) || "",
-                            trainingName: getValueByFlexibleKeys(r, ['formation', 'classe']) || "Animation"
+                            trainingName: getValueByFlexibleKeys(r, ['formation', 'classe']) || "N/C"
                         }));
                         setData(p => ({ ...p, students: [...p.students, ...news] }));
                     } else if (type === 'acts') {
@@ -187,18 +176,30 @@
 
                         {activeTab === 'students' && (
                             <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
-                                <Card title="Import Artistes" icon="upload">
-                                    <input type="file" onChange={(e) => handleFileUpload(e, 'students')} className="text-xs font-bold" />
+                                <Card title="Nouveau" icon="plus">
+                                    <div className="p-4 border-2 border-dashed border-indigo-100 rounded-2xl text-center">
+                                        <input type="file" onChange={(e) => handleFileUpload(e, 'students')} className="text-xs font-bold" />
+                                        <p className="mt-2 text-[9px] text-slate-400 uppercase font-black">Importer Excel</p>
+                                    </div>
                                 </Card>
                                 <div className="lg:col-span-3">
-                                    <Card title={`Troupe (${data.students.length})`} icon="users">
+                                    <Card title={`Troupe de Scène (${data.students.length})`} icon="users">
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                                            {data.students.map(s => (
-                                                <div key={s.id} className="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex justify-between items-center text-[11px] font-black uppercase">
-                                                    <span>{s.firstName} {s.lastName}</span>
-                                                    <span className="text-indigo-400 italic">{s.trainingName}</span>
-                                                </div>
-                                            ))}
+                                            {data.students.map(s => {
+                                                const style = getFormationStyle(s.trainingName, formations);
+                                                return (
+                                                    <div key={s.id} className="p-4 bg-white border border-slate-100 rounded-3xl flex justify-between items-center group shadow-sm hover:border-indigo-100 transition-all hover:scale-[1.02]">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className={`w-10 h-10 rounded-2xl ${style.bg} ${style.text} flex items-center justify-center font-black text-xs uppercase`}>{s.firstName[0]}</div>
+                                                            <div className="truncate">
+                                                                <h4 className="font-black text-slate-800 text-[10px] uppercase leading-none mb-1">{s.firstName} {s.lastName}</h4>
+                                                                <p className="text-[9px] font-bold text-indigo-400 italic">{s.trainingName}</p>
+                                                            </div>
+                                                        </div>
+                                                        <button onClick={() => setData(p => ({...p, students: p.students.filter(x => x.id !== s.id)}))} className="text-rose-100 hover:text-rose-500 transition-colors"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </Card>
                                 </div>
@@ -215,7 +216,7 @@
                                         const typeStyle = ACT_TYPE_STYLES[act.type] || ACT_TYPE_STYLES.default;
                                         const energyStyle = ENERGY_STYLES[act.energy] || ENERGY_STYLES.medium;
                                         return (
-                                            <div key={act.id} className="flex items-center justify-between p-6 bg-white border border-slate-100 rounded-3xl shadow-sm hover:shadow-md transition-all">
+                                            <div key={act.id} className="flex items-center justify-between p-6 bg-white border border-slate-100 rounded-[2rem] shadow-sm hover:shadow-md transition-all">
                                                 <div className="flex items-center gap-6">
                                                     <span className="text-3xl font-black text-slate-100 italic">{(i + 1).toString().padStart(2, '0')}</span>
                                                     <div>
@@ -255,7 +256,34 @@
                                             </LineChart>
                                         </ResponsiveContainer>
                                     </div>
-                                    <div className="mt-6 flex justify-center gap-6">
-                                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400"><div className="w-3 h-3 rounded-full bg-blue-400"></div> Calme</div>
-                                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400"><div className="w-3 h-3 rounded-full bg-indigo-400"></div> Modéré</div>
-                                        <div className="flex items-center gap-2 text-[10px] font-
+                                </Card>
+                                <Card title="Charge Formations" icon="bar-chart-3">
+                                    <div className="h-80 mt-6">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={formations.map(f => ({ name: f, count: data.students.filter(s => s.trainingName === f).length }))}>
+                                                <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} />
+                                                <Bar dataKey="count" fill="#6366F1" radius={[12, 12, 0, 0]} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </Card>
+                            </div>
+                        )}
+                        
+                        {activeTab === 'export' && (
+                            <div className="max-w-2xl mx-auto text-center p-20 bg-white rounded-[4rem] shadow-2xl border-b-8 border-indigo-600">
+                                <i data-lucide="download" className="w-20 h-20 text-indigo-500 mx-auto mb-10 animate-bounce"></i>
+                                <h3 className="font-black text-slate-800 text-4xl mb-6 uppercase tracking-tighter">Dossier de Régie</h3>
+                                <button onClick={() => alert('Exportation...')} className="bg-indigo-600 text-white px-12 py-6 rounded-3xl font-black text-lg shadow-xl">TÉLÉCHARGER LE DOSSIER</button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
