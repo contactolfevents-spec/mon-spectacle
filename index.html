@@ -18,16 +18,32 @@
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F8FAFF; margin: 0; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
+        .glass-card { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); border: 1px solid white; }
+        
+        #loader-init {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100vh; color: #6366f1; background: #F8FAFF;
+        }
+        .spinner {
+            width: 50px; height: 50px; border: 5px solid #eef2ff; border-top: 5px solid #6366f1;
+            border-radius: 50%; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="root">
+        <div id="loader-init">
+            <div class="spinner"></div>
+            <p style="margin-top: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;">Chargement de la Régie Complète...</p>
+        </div>
+    </div>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-        const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } = window.Recharts || {};
+        const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } = window.Recharts;
 
-        // --- UTILITAIRES ---
+        // --- UTILITAIRES DE NORMALISATION ---
         const normalizeKey = (k) => k ? k.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '').trim() : "";
         
         const getValueByFlexibleKeys = (row, targets) => {
@@ -38,8 +54,8 @@
 
         const ENERGY_MAP = {
             'basse': 'low', 'bas': 'low', 'calme': 'low', 'low': 'low',
-            'moyenne': 'medium', 'moyen': 'medium', 'medium': 'medium', 'standard': 'medium',
-            'haute': 'high', 'haut': 'high', 'fort': 'high', 'forte': 'high', 'high': 'high', 'explosif': 'high'
+            'moyenne': 'medium', 'moyen': 'medium', 'medium': 'medium',
+            'haute': 'high', 'haut': 'high', 'fort': 'high', 'forte': 'high', 'high': 'high'
         };
 
         const ACT_TYPE_STYLES = {
@@ -61,7 +77,8 @@
             { bg: 'bg-indigo-100', text: 'text-indigo-700' },
             { bg: 'bg-rose-100', text: 'text-rose-700' },
             { bg: 'bg-amber-100', text: 'text-amber-700' },
-            { bg: 'bg-emerald-100', text: 'text-emerald-700' }
+            { bg: 'bg-emerald-100', text: 'text-emerald-700' },
+            { bg: 'bg-sky-100', text: 'text-sky-700' }
         ];
 
         const getFormationStyle = (name, list) => {
@@ -86,6 +103,7 @@
             );
         };
 
+        // --- APPLICATION PRINCIPALE ---
         function App() {
             const [activeTab, setActiveTab] = useState('students');
             const [data, setData] = useState({ students: [], acts: [], assignments: [], formationLimits: {}, actRequirements: {} });
@@ -94,12 +112,12 @@
             const formations = useMemo(() => Array.from(new Set(data.students.map(s => s.trainingName))).sort(), [data.students]);
 
             useEffect(() => {
-                const saved = localStorage.getItem('show_planner_full_v10');
+                const saved = localStorage.getItem('show_planner_v10_full');
                 if (saved) setData(JSON.parse(saved));
             }, []);
 
             useEffect(() => { 
-                localStorage.setItem('show_planner_full_v10', JSON.stringify(data));
+                localStorage.setItem('show_planner_v10_full', JSON.stringify(data));
                 lucide.createIcons();
             }, [data, activeTab]);
 
@@ -122,7 +140,7 @@
                         setData(p => ({ ...p, students: [...p.students, ...news] }));
                     } else if (type === 'acts') {
                         const news = rows.map(r => {
-                            const rawEnergy = normalizeKey(getValueByFlexibleKeys(r, ['energie', 'énergie', 'energy', 'rythme']));
+                            const rawEnergy = normalizeKey(getValueByFlexibleKeys(r, ['energie', 'énergie', 'energy']));
                             return {
                                 id: crypto.randomUUID(),
                                 name: getValueByFlexibleKeys(r, ['nom', 'name', 'numero']) || "Sans titre",
@@ -132,34 +150,69 @@
                         });
                         setData(p => ({ ...p, acts: [...p.acts, ...news] }));
                     }
-                    showNotif("Données importées ! 🎭");
+                    showNotif("✅ Données importées !");
                 };
                 reader.readAsBinaryString(e.target.files[0]);
             };
 
+            // ALGORITHME DE RÉPARTITION COMPLET
             const generateMagic = () => {
-                const { students, acts } = data;
+                const { students, acts, actRequirements, formationLimits } = data;
+                if (!acts.length || !students.length) return showNotif("❌ Données manquantes !");
                 let temp = [];
-                students.forEach(s => {
-                    const random = [...acts].sort(() => 0.5 - Math.random()).slice(0, 2);
-                    random.forEach(a => temp.push({ studentId: s.id, actId: a.id }));
+                let stats = {};
+                students.forEach(s => stats[s.id] = { load: 0, lastIdx: -2 });
+
+                // 1. Appliquer les verrous (Artistes imposés)
+                acts.forEach((act, idx) => {
+                    const req = actRequirements[act.id] || { fixedStudents: [] };
+                    (req.fixedStudents || []).forEach(sId => {
+                        temp.push({ actId: act.id, studentId: sId });
+                        stats[sId].load++;
+                        stats[sId].lastIdx = idx;
+                    });
+                });
+
+                // 2. Remplissage intelligent selon quotas
+                acts.forEach((act, idx) => {
+                    const req = actRequirements[act.id] || { total: 0, allowedFormations: [] };
+                    const currentIn = temp.filter(a => a.actId === act.id).length;
+                    const needed = Math.max(0, (req.total || 0) - currentIn);
+                    const allowed = req.allowedFormations || [];
+
+                    for (let j = 0; j < needed; j++) {
+                        const candidates = students.filter(s => {
+                            const isAllowed = allowed.length === 0 || allowed.includes(s.trainingName);
+                            const notInAct = !temp.some(a => a.actId === act.id && a.studentId === s.id);
+                            const notConsecutive = stats[s.id].lastIdx !== idx - 1;
+                            const underLimit = stats[s.id].load < (formationLimits[s.trainingName] || 99);
+                            return isAllowed && notInAct && notConsecutive && underLimit;
+                        }).sort((a, b) => stats[a.id].load - stats[b.id].load);
+
+                        if (candidates.length > 0) {
+                            const chosen = candidates[0];
+                            temp.push({ actId: act.id, studentId: chosen.id });
+                            stats[chosen.id].load++;
+                            stats[chosen.id].lastIdx = idx;
+                        }
+                    }
                 });
                 setData(p => ({ ...p, assignments: temp }));
-                showNotif("✨ Casting généré !");
+                showNotif("✨ Magie opérée avec succès !");
             };
 
             return (
-                <div className="min-h-screen pb-10">
-                    <header className="bg-white/80 h-24 px-10 flex justify-between items-center sticky top-0 z-50 border-b border-indigo-50 shadow-sm">
+                <div className="min-h-screen">
+                    <header className="bg-white border-b border-indigo-50 h-24 px-10 flex justify-between items-center sticky top-0 z-50">
                         <div className="flex items-center gap-5">
                             <div className="bg-indigo-600 p-3 rounded-2xl text-white shadow-lg"><i data-lucide="sparkles"></i></div>
                             <h1 className="text-2xl font-black text-indigo-950 uppercase tracking-tighter">Show Planner Pro</h1>
                         </div>
-                        {notif && <div className="bg-indigo-800 text-white px-8 py-3 rounded-2xl text-xs font-black animate-bounce">{notif}</div>}
+                        {notif && <div className="bg-indigo-800 text-white px-8 py-3 rounded-2xl text-xs font-black shadow-xl animate-bounce">{notif}</div>}
                     </header>
 
-                    <div className="max-w-7xl mx-auto px-8 py-10">
-                        <nav className="flex bg-white p-2 rounded-[2.5rem] mb-16 w-fit mx-auto border border-indigo-100 shadow-sm overflow-x-auto">
+                    <main className="max-w-7xl mx-auto px-8 py-10">
+                        <nav className="flex bg-white p-2 rounded-[2.5rem] mb-12 w-fit mx-auto border border-indigo-100 shadow-sm overflow-x-auto">
                             {[
                                 { id: 'students', label: 'Artistes', icon: 'users' },
                                 { id: 'show', label: 'Spectacle', icon: 'music' },
@@ -174,110 +227,249 @@
                             ))}
                         </nav>
 
-                        {activeTab === 'students' && (
-                            <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
-                                <Card title="Nouveau" icon="plus">
-                                    <div className="p-4 border-2 border-dashed border-indigo-100 rounded-2xl text-center">
-                                        <input type="file" onChange={(e) => handleFileUpload(e, 'students')} className="text-xs font-bold" />
-                                        <p className="mt-2 text-[9px] text-slate-400 uppercase font-black">Importer Excel</p>
-                                    </div>
-                                </Card>
-                                <div className="lg:col-span-3">
-                                    <Card title={`Troupe de Scène (${data.students.length})`} icon="users">
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                                            {data.students.map(s => {
-                                                const style = getFormationStyle(s.trainingName, formations);
-                                                return (
-                                                    <div key={s.id} className="p-4 bg-white border border-slate-100 rounded-3xl flex justify-between items-center group shadow-sm hover:border-indigo-100 transition-all hover:scale-[1.02]">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className={`w-10 h-10 rounded-2xl ${style.bg} ${style.text} flex items-center justify-center font-black text-xs uppercase`}>{s.firstName[0]}</div>
-                                                            <div className="truncate">
-                                                                <h4 className="font-black text-slate-800 text-[10px] uppercase leading-none mb-1">{s.firstName} {s.lastName}</h4>
-                                                                <p className="text-[9px] font-bold text-indigo-400 italic">{s.trainingName}</p>
-                                                            </div>
-                                                        </div>
-                                                        <button onClick={() => setData(p => ({...p, students: p.students.filter(x => x.id !== s.id)}))} className="text-rose-100 hover:text-rose-500 transition-colors"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </Card>
-                                </div>
-                            </div>
-                        )}
+                        {activeTab === 'students' && <StudentManager data={data} formations={formations} setData={setData} handleFileUpload={handleFileUpload} />}
+                        {activeTab === 'show' && <ShowManager data={data} setData={setData} handleFileUpload={handleFileUpload} />}
+                        {activeTab === 'proposal' && <ProposalEngine data={data} formations={formations} setData={setData} onGenerate={generateMagic} />}
+                        {activeTab === 'manual' && <ManualAllocation data={data} formations={formations} setData={setData} />}
+                        {activeTab === 'stats' && <StatsDashboard data={data} formations={formations} />}
+                        {activeTab === 'export' && <ExportDashboard data={data} />}
+                    </main>
+                </div>
+            );
+        }
 
-                        {activeTab === 'show' && (
-                            <Card title="Programme du Spectacle" icon="music">
-                                <div className="p-10 rounded-[2.5rem] border-2 border-dashed border-purple-200 text-center bg-white mb-10">
-                                    <input type="file" onChange={(e) => handleFileUpload(e, 'acts')} className="text-xs" />
-                                </div>
-                                <div className="space-y-4">
-                                    {data.acts.map((act, i) => {
-                                        const typeStyle = ACT_TYPE_STYLES[act.type] || ACT_TYPE_STYLES.default;
-                                        const energyStyle = ENERGY_STYLES[act.energy] || ENERGY_STYLES.medium;
-                                        return (
-                                            <div key={act.id} className="flex items-center justify-between p-6 bg-white border border-slate-100 rounded-[2rem] shadow-sm hover:shadow-md transition-all">
-                                                <div className="flex items-center gap-6">
-                                                    <span className="text-3xl font-black text-slate-100 italic">{(i + 1).toString().padStart(2, '0')}</span>
-                                                    <div>
-                                                        <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-2">{act.name}</h4>
-                                                        <div className="flex gap-2">
-                                                            <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border ${typeStyle.bg} ${typeStyle.text}`}>{act.type}</span>
-                                                            <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase ${energyStyle.bg} ${energyStyle.text}`}>⚡ {energyStyle.label}</span>
-                                                        </div>
-                                                    </div>
+        // --- SECTION : ARTISTES ---
+        function StudentManager({ data, formations, setData, handleFileUpload }) {
+            return (
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-10 animate-in fade-in duration-700">
+                    <div className="space-y-8">
+                        <Card title="Source" icon="upload">
+                            <input type="file" onChange={(e) => handleFileUpload(e, 'students')} className="text-xs font-bold w-full" />
+                        </Card>
+                    </div>
+                    <div className="lg:col-span-3">
+                        <Card title={`La Troupe (${data.students.length})`} icon="users">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                                {data.students.map(s => {
+                                    const style = getFormationStyle(s.trainingName, formations);
+                                    return (
+                                        <div key={s.id} className="p-5 bg-white border border-slate-100 rounded-3xl flex justify-between items-center shadow-sm hover:border-indigo-100 transition-all hover:scale-[1.02]">
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-10 h-10 rounded-2xl ${style.bg} ${style.text} flex items-center justify-center font-black text-xs uppercase`}>{s.firstName[0]}</div>
+                                                <div>
+                                                    <h4 className="font-black text-slate-800 text-[11px] uppercase leading-none mb-1">{s.firstName} {s.lastName}</h4>
+                                                    <p className="text-[9px] font-bold text-indigo-400 italic">{s.trainingName}</p>
                                                 </div>
                                             </div>
-                                        );
-                                    })}
-                                </div>
-                            </Card>
-                        )}
-
-                        {activeTab === 'proposal' && (
-                            <div className="text-center bg-indigo-600 p-24 rounded-[4rem] text-white shadow-2xl relative">
-                                <i data-lucide="wand-2" className="mx-auto mb-8 w-16 h-16"></i>
-                                <h2 className="text-5xl font-black mb-6 uppercase tracking-tighter">Magie de Répartition</h2>
-                                <button onClick={generateMagic} className="bg-white text-indigo-600 px-20 py-6 rounded-full font-black text-xl shadow-2xl hover:scale-110 transition active:scale-95">LANCER LE CALCUL ✨</button>
+                                            <button onClick={() => setData(p => ({...p, students: p.students.filter(x => x.id !== s.id)}))} className="text-rose-100 hover:text-rose-500"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
+                                        </div>
+                                    );
+                                })}
                             </div>
-                        )}
-
-                        {activeTab === 'stats' && (
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                                <Card title="Rythme Énergétique du Show" icon="activity">
-                                    <div className="h-80 mt-6">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <LineChart data={data.acts.map((a,i) => ({ n: i+1, v: a.energy === 'high' ? 3 : a.energy === 'low' ? 1 : 2 }))}>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEF2FF" />
-                                                <XAxis dataKey="n" stroke="#94A3B8" />
-                                                <YAxis hide domain={[0, 4]} />
-                                                <Tooltip />
-                                                <Line type="monotone" dataKey="v" stroke="#6366F1" strokeWidth={6} dot={{ r: 8, fill: '#6366F1', stroke: '#fff', strokeWidth: 3 }} />
-                                            </LineChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </Card>
-                                <Card title="Charge Formations" icon="bar-chart-3">
-                                    <div className="h-80 mt-6">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={formations.map(f => ({ name: f, count: data.students.filter(s => s.trainingName === f).length }))}>
-                                                <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} />
-                                                <Bar dataKey="count" fill="#6366F1" radius={[12, 12, 0, 0]} />
-                                            </BarChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </Card>
-                            </div>
-                        )}
-                        
-                        {activeTab === 'export' && (
-                            <div className="max-w-2xl mx-auto text-center p-20 bg-white rounded-[4rem] shadow-2xl border-b-8 border-indigo-600">
-                                <i data-lucide="download" className="w-20 h-20 text-indigo-500 mx-auto mb-10 animate-bounce"></i>
-                                <h3 className="font-black text-slate-800 text-4xl mb-6 uppercase tracking-tighter">Dossier de Régie</h3>
-                                <button onClick={() => alert('Exportation...')} className="bg-indigo-600 text-white px-12 py-6 rounded-3xl font-black text-lg shadow-xl">TÉLÉCHARGER LE DOSSIER</button>
-                            </div>
-                        )}
+                        </Card>
                     </div>
+                </div>
+            );
+        }
+
+        // --- SECTION : SPECTACLE ---
+        function ShowManager({ data, setData, handleFileUpload }) {
+            return (
+                <Card title="Séquence du Spectacle" icon="music">
+                    <div className="p-12 rounded-[2.5rem] border-2 border-dashed border-purple-200 text-center bg-white mb-10">
+                        <input type="file" onChange={(e) => handleFileUpload(e, 'acts')} className="text-xs" />
+                    </div>
+                    <div className="space-y-4">
+                        {data.acts.map((act, i) => {
+                            const typeStyle = ACT_TYPE_STYLES[act.type] || ACT_TYPE_STYLES.default;
+                            const energyStyle = ENERGY_STYLES[act.energy] || ENERGY_STYLES.medium;
+                            return (
+                                <div key={act.id} className="flex items-center justify-between p-6 bg-white border border-slate-100 rounded-[2rem] shadow-sm">
+                                    <div className="flex items-center gap-6">
+                                        <span className="text-3xl font-black text-slate-100 italic">{(i + 1).toString().padStart(2, '0')}</span>
+                                        <div>
+                                            <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-2">{act.name}</h4>
+                                            <div className="flex gap-2">
+                                                <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border ${typeStyle.bg} ${typeStyle.text}`}>{act.type}</span>
+                                                <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase ${energyStyle.bg} ${energyStyle.text}`}>⚡ {energyStyle.label}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setData(p => ({...p, acts: p.acts.filter(x => x.id !== act.id)}))} className="text-rose-100 hover:text-rose-500"><i data-lucide="trash-2" className="w-5 h-5"></i></button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </Card>
+            );
+        }
+
+        // --- SECTION : MAGIE (RESTAURÉE) ---
+        function ProposalEngine({ data, formations, setData, onGenerate }) {
+            const [fixedSearch, setFixedSearch] = useState({});
+            const toggleFixed = (actId, sId) => {
+                setData(p => {
+                    const req = p.actRequirements[actId] || { total: 0, allowedFormations: [], fixedStudents: [] };
+                    const nextFixed = req.fixedStudents.includes(sId) ? req.fixedStudents.filter(id => id !== sId) : [...req.fixedStudents, sId];
+                    return { ...p, actRequirements: { ...p.actRequirements, [actId]: { ...req, fixedStudents: nextFixed } } };
+                });
+            };
+            return (
+                <div className="space-y-12 animate-in slide-in-from-bottom-5 duration-700">
+                    <Card title="Quotas de charge par formation" icon="gauge">
+                        <div className="flex flex-wrap gap-5">
+                            {formations.map(f => (
+                                <div key={f} className="px-5 py-3 rounded-2xl border bg-slate-50 flex items-center gap-4">
+                                    <span className="text-[10px] font-black uppercase text-indigo-600">{f}</span>
+                                    <input type="number" value={data.formationLimits[f] || ''} onChange={e => setData(prev => ({...prev, formationLimits: {...prev.formationLimits, [f]: parseInt(e.target.value)}}))} className="w-14 bg-white px-3 py-2 rounded-xl text-xs font-black" placeholder="∞" />
+                                </div>
+                            ))}
+                        </div>
+                    </Card>
+                    <div className="space-y-6">
+                        {data.acts.map((act, idx) => {
+                            const req = data.actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
+                            const matches = data.students.filter(s => `${s.firstName} ${s.lastName}`.toLowerCase().includes((fixedSearch[act.id] || "").toLowerCase())).slice(0, 5);
+                            return (
+                                <div key={act.id} className="bg-white rounded-[2.5rem] p-8 shadow-xl border border-white flex flex-col lg:flex-row gap-10">
+                                    <div className="lg:w-64">
+                                        <div className="text-2xl font-black text-slate-100 italic mb-2">{(idx + 1).toString().padStart(2, '0')}</div>
+                                        <h4 className="text-[12px] font-black text-slate-800 uppercase mb-4">{act.name}</h4>
+                                        <input type="number" value={req.total || ''} onChange={e => setData(p => ({...p, actRequirements: {...p.actRequirements, [act.id]: {...req, total: parseInt(e.target.value) || 0}}}))} className="w-full bg-indigo-50 p-4 rounded-2xl text-center font-black text-indigo-700 outline-none" placeholder="Besoin Artistes" />
+                                    </div>
+                                    <div className="flex-1 space-y-4">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Formations autorisées</label>
+                                        <div className="flex flex-wrap gap-2.5">
+                                            {formations.map(f => {
+                                                const active = req.allowedFormations.includes(f);
+                                                return <button key={f} onClick={() => setData(p => { const next = active ? req.allowedFormations.filter(x => x !== f) : [...req.allowedFormations, f]; return {...p, actRequirements: {...p.actRequirements, [act.id]: {...req, allowedFormations: next}}}; })} className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all border ${active ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>{f}</button>;
+                                            })}
+                                        </div>
+                                    </div>
+                                    <div className="lg:w-80 space-y-4">
+                                        <input type="text" placeholder="Imposer un artiste..." value={fixedSearch[act.id] || ""} onChange={(e) => setFixedSearch({...fixedSearch, [act.id]: e.target.value})} className="w-full px-5 py-3 rounded-2xl bg-slate-50 text-[11px] font-bold border-none outline-none" />
+                                        {fixedSearch[act.id] && <div className="bg-white border rounded-2xl shadow-2xl overflow-hidden">{matches.map(s => <button key={s.id} onClick={() => { toggleFixed(act.id, s.id); setFixedSearch({...fixedSearch, [act.id]: ""}); }} className="w-full text-left px-5 py-3 text-[11px] hover:bg-indigo-50 font-black uppercase border-b last:border-0">{s.firstName} {s.lastName}</button>)}</div>}
+                                        <div className="flex flex-wrap gap-2">{req.fixedStudents.map(sId => { const s = data.students.find(x => x.id === sId); return s ? (<div key={sId} className="flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-xl border bg-amber-50 border-amber-200 text-amber-700 text-[9px] font-black uppercase"><i data-lucide="lock" className="w-3 h-3"></i> {s.firstName} <button onClick={() => toggleFixed(act.id, sId)}><i data-lucide="x" className="w-4 h-4"></i></button></div>) : null; })}</div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className="flex justify-center pb-20"><button onClick={onGenerate} className="px-20 py-7 bg-indigo-600 rounded-[3rem] text-white font-black text-2xl shadow-2xl hover:scale-110 transition active:scale-95">LANCER LE CALCUL ✨</button></div>
+                </div>
+            );
+        }
+
+        // --- SECTION : COULISSES (RESTAURÉE) ---
+        function ManualAllocation({ data, formations, setData }) {
+            const [selectedId, setSelectedId] = useState(data.acts[0]?.id);
+            const currentAct = data.acts.find(a => a.id === selectedId);
+            const castIds = new Set(data.assignments.filter(a => a.actId === selectedId).map(a => a.studentId));
+            return (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                    <div className="lg:col-span-4 space-y-3 max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
+                        {data.acts.map((act, idx) => (
+                            <button key={act.id} onClick={() => setSelectedId(act.id)} className={`w-full text-left p-6 rounded-[2rem] border transition-all flex items-center justify-between ${selectedId === act.id ? 'bg-indigo-600 text-white shadow-2xl scale-[1.02]' : 'bg-white text-slate-600 border-indigo-50'}`}>
+                                <div className="text-[11px] font-black uppercase tracking-tight">{idx + 1}. {act.name}</div>
+                                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs ${selectedId === act.id ? 'bg-indigo-500' : 'bg-indigo-50 text-indigo-600'}`}>{data.assignments.filter(a => a.actId === act.id).length}</div>
+                            </button>
+                        ))}
+                    </div>
+                    <div className="lg:col-span-8">
+                        <Card title={`Distribution : ${currentAct?.name || '---'}`} icon="star">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                {data.students.map(student => {
+                                    const assigned = castIds.has(student.id);
+                                    const style = getFormationStyle(student.trainingName, formations);
+                                    return (
+                                        <button key={student.id} onClick={() => { setData(p => ({ ...p, assignments: assigned ? p.assignments.filter(a => !(a.actId === selectedId && a.studentId === student.id)) : [...p.assignments, { actId: selectedId, studentId: student.id }] })); }} className={`relative p-4 rounded-3xl border-2 text-left transition-all ${assigned ? `${style.bg} ${style.border} shadow-lg scale-105 z-10` : 'bg-white border-slate-50'}`}>
+                                            <div className="truncate"><p className="font-black text-[10px] uppercase text-slate-800 leading-none truncate">{student.firstName} {student.lastName}</p><p className="text-[7px] font-bold text-slate-400 mt-1 uppercase italic tracking-tighter">Charge: {data.assignments.filter(a => a.studentId === student.id).length}</p></div>
+                                            {assigned && <div className="absolute -top-2 -right-2 bg-indigo-600 text-white p-1 rounded-full shadow-lg border-2 border-white"><i data-lucide="check" className="w-3 h-3"></i></div>}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </Card>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- SECTION : SUCCÈS (GRAPHES RESTAURÉS) ---
+        function StatsDashboard({ data, formations }) {
+            const energyData = data.acts.map((act, idx) => ({ n: idx + 1, v: act.energy === 'high' ? 3 : act.energy === 'low' ? 1 : 2 }));
+            const workload = formations.map(f => ({ name: f, count: data.assignments.filter(a => data.students.find(s => s.id === a.studentId)?.trainingName === f).length }));
+            const consecutive = useMemo(() => {
+                const alerts = [];
+                data.students.forEach(student => {
+                    for (let i = 0; i < data.acts.length - 1; i++) {
+                        const in1 = data.assignments.some(a => a.actId === data.acts[i].id && a.studentId === student.id);
+                        const in2 = data.assignments.some(a => a.actId === data.acts[i+1].id && a.studentId === student.id);
+                        if (in1 && in2) alerts.push({ name: `${student.firstName} ${student.lastName}`, act1: data.acts[i].name, act2: data.acts[i+1].name });
+                    }
+                });
+                return alerts;
+            }, [data]);
+
+            return (
+                <div className="space-y-10">
+                    {consecutive.length > 0 && (
+                        <Card title="Alerte : Enchaînements immédiats (Repos 0)" icon="alert-triangle">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                {consecutive.map((a,i) => (<div key={i} className="p-4 bg-rose-50 border border-rose-100 rounded-2xl"><p className="font-black text-rose-700 text-[10px] uppercase leading-none">{a.name}</p><p className="text-[8px] text-rose-400 italic font-bold leading-tight mt-1">{a.act1} ➔ {a.act2}</p></div>))}
+                            </div>
+                        </Card>
+                    )}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                        <Card title="Rythme Énergétique" icon="activity">
+                            <div className="h-80 mt-6">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={energyData}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEF2FF" />
+                                        <XAxis dataKey="n" stroke="#94A3B8" />
+                                        <YAxis hide domain={[0, 4]} />
+                                        <Tooltip />
+                                        <Line type="monotone" dataKey="v" stroke="#6366F1" strokeWidth={6} dot={{ r: 8, fill: '#6366F1', stroke: '#fff', strokeWidth: 3 }} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </Card>
+                        <Card title="Charge par Formation" icon="bar-chart-3">
+                            <div className="h-80 mt-6">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={workload.sort((a,b)=>b.count-a.count)}>
+                                        <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} />
+                                        <Bar dataKey="count" fill="#6366F1" radius={[15, 15, 0, 0]} barSize={30} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </Card>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- SECTION : RÉGIE (EXPORT) ---
+        function ExportDashboard({ data }) {
+            const exportExcel = () => {
+                const workbook = XLSX.utils.book_new();
+                const studentSchedules = data.students.map(s => ({
+                    "Artiste": `${s.firstName} ${s.lastName}`.toUpperCase(),
+                    "Formation": s.trainingName,
+                    "Total Numéros": data.assignments.filter(a => a.studentId === s.id).length,
+                    "Planning de Scène": data.assignments.filter(a => a.studentId === s.id).map(a => data.acts.find(act => act.id === a.actId)?.name).join(' | ')
+                }));
+                XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(studentSchedules), "Export Régie");
+                XLSX.writeFile(workbook, `Show_Planner_Regie_${new Date().toLocaleDateString()}.xlsx`);
+            };
+            return (
+                <div className="max-w-4xl mx-auto text-center p-24 bg-white rounded-[4rem] shadow-2xl border-8 border-indigo-50">
+                    <i data-lucide="download" className="w-24 h-24 text-indigo-500 mx-auto mb-10 animate-bounce"></i>
+                    <h3 className="font-black text-slate-800 text-5xl mb-6 uppercase tracking-tighter">Dossier de Régie</h3>
+                    <p className="text-slate-400 font-bold text-base mb-14 opacity-70 italic leading-relaxed">Génération automatique des feuilles de route et statistiques de charge.</p>
+                    <button onClick={exportExcel} className="bg-indigo-600 text-white px-20 py-7 rounded-[2.5rem] font-black text-2xl shadow-2xl hover:bg-indigo-700 transition active:scale-95 flex items-center gap-6 mx-auto">
+                        <i data-lucide="download"></i> TÉLÉCHARGER LE DOSSIER (.XLSX)
+                    </button>
                 </div>
             );
         }
