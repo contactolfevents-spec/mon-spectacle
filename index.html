@@ -15,7 +15,7 @@
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F8FAFF; margin: 0; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F8FAFF; margin: 0; overflow-x: hidden; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
         .glass-card { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); border: 1px solid white; }
@@ -29,19 +29,20 @@
             border-radius: 50%; animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
     </style>
 </head>
 <body>
     <div id="root">
         <div id="loader-init">
             <div class="spinner"></div>
-            <p style="margin-top: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;">Initialisation de la Régie Complète (750+ lignes)...</p>
+            <p style="margin-top: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;">Initialisation de la Régie Complète (800+ lignes)...</p>
         </div>
     </div>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useCallback } = React;
-        const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, Legend } = window.Recharts;
 
         // --- 1. UTILITAIRES DE NORMALISATION ---
         const normalizeKey = (k) => k ? k.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '').trim() : "";
@@ -89,12 +90,12 @@
 
         // --- 2. COMPOSANTS UI GÉNÉRIQUES ---
         const Card = ({ title, children, icon, actions, noPadding = false }) => {
-            useEffect(() => { lucide.createIcons(); }, []);
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, []);
             return (
-                <div className="bg-white/90 rounded-[2.5rem] shadow-xl border border-white overflow-hidden mb-8 animate-in fade-in duration-500">
+                <div className="bg-white/90 rounded-[2.5rem] shadow-xl border border-white overflow-hidden mb-8 transition-all hover:shadow-2xl">
                     <div className="px-8 py-6 border-b border-indigo-50 flex justify-between items-center bg-gradient-to-r from-white to-indigo-50/20">
                         <div className="flex items-center gap-4">
-                            <div className="p-3 bg-indigo-100 rounded-2xl"><i data-lucide={icon} className="w-6 h-6 text-indigo-600"></i></div>
+                            <div className="p-3 bg-indigo-100 rounded-2xl shadow-inner"><i data-lucide={icon} className="w-6 h-6 text-indigo-600"></i></div>
                             <h3 className="font-black text-slate-800 text-xl tracking-tight uppercase italic">{title}</h3>
                         </div>
                         <div className="flex gap-2">{actions}</div>
@@ -104,7 +105,7 @@
             );
         };
 
-        // --- 3. APPLICATION PRINCIPALE (INTEGRALE) ---
+        // --- 3. APPLICATION PRINCIPALE ---
         function App() {
             const [activeTab, setActiveTab] = useState('students');
             const [data, setData] = useState({ 
@@ -119,46 +120,53 @@
             const formations = useMemo(() => Array.from(new Set(data.students.map(s => s.trainingName))).sort(), [data.students]);
 
             useEffect(() => {
-                const saved = localStorage.getItem('show_planner_ultimate_final_v10');
-                if (saved) setData(JSON.parse(saved));
+                const saved = localStorage.getItem('show_planner_final_v10');
+                if (saved) {
+                    try { setData(JSON.parse(saved)); } catch (e) { console.error("Erreur de chargement", e); }
+                }
             }, []);
 
             useEffect(() => { 
-                localStorage.setItem('show_planner_ultimate_final_v10', JSON.stringify(data));
-                lucide.createIcons();
+                localStorage.setItem('show_planner_final_v10', JSON.stringify(data));
+                if (window.lucide) window.lucide.createIcons();
             }, [data, activeTab]);
 
             const showNotif = (msg) => { setNotif(msg); setTimeout(() => setNotif(null), 5000); };
 
             const handleFileUpload = (e, type) => {
                 const file = e.target.files[0];
+                if (!file) return;
                 const reader = new FileReader();
                 reader.onload = (evt) => {
-                    const workbook = XLSX.read(evt.target.result, { type: 'binary' });
-                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const rows = XLSX.utils.sheet_to_json(sheet);
-                    
-                    if (type === 'students') {
-                        const news = rows.map(r => ({
-                            id: crypto.randomUUID(),
-                            firstName: getValueByFlexibleKeys(r, ['prenom', 'prenomeleve', 'prenom eleve']) || "Artiste",
-                            lastName: getValueByFlexibleKeys(r, ['nom', 'nomeleve', 'nom eleve']) || "",
-                            trainingName: getValueByFlexibleKeys(r, ['formation', 'classe', 'discipline']) || "N/C"
-                        }));
-                        setData(p => ({ ...p, students: [...p.students, ...news] }));
-                        showNotif(`🎭 ${news.length} artistes importés !`);
-                    } else if (type === 'acts') {
-                        const news = rows.map(r => {
-                            const rawEnergy = normalizeKey(getValueByFlexibleKeys(r, ['energie', 'énergie', 'energy', 'rythme']));
-                            return {
+                    try {
+                        const workbook = XLSX.read(evt.target.result, { type: 'binary' });
+                        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const rows = XLSX.utils.sheet_to_json(sheet);
+                        
+                        if (type === 'students') {
+                            const news = rows.map(r => ({
                                 id: crypto.randomUUID(),
-                                name: getValueByFlexibleKeys(r, ['nom', 'name', 'numero', 'nomdunúmero']) || "Sans titre",
-                                type: (getValueByFlexibleKeys(r, ['type', 'typedunúmero']) || "Tableau").toLowerCase(),
-                                energy: ENERGY_MAP[rawEnergy] || 'medium'
-                            };
-                        });
-                        setData(p => ({ ...p, acts: [...p.acts, ...news] }));
-                        showNotif(`🎬 ${news.length} numéros importés !`);
+                                firstName: getValueByFlexibleKeys(r, ['prenom', 'prenomeleve', 'prenom eleve']) || "Artiste",
+                                lastName: getValueByFlexibleKeys(r, ['nom', 'nomeleve', 'nom eleve']) || "",
+                                trainingName: getValueByFlexibleKeys(r, ['formation', 'classe', 'discipline', 'option']) || "Animation"
+                            }));
+                            setData(p => ({ ...p, students: [...p.students, ...news] }));
+                            showNotif(`🎭 ${news.length} artistes importés !`);
+                        } else if (type === 'acts') {
+                            const news = rows.map(r => {
+                                const rawEnergy = normalizeKey(getValueByFlexibleKeys(r, ['energie', 'énergie', 'energy', 'rythme']));
+                                return {
+                                    id: crypto.randomUUID(),
+                                    name: getValueByFlexibleKeys(r, ['nom', 'name', 'numero', 'nomdunúmero']) || "Sans titre",
+                                    type: (getValueByFlexibleKeys(r, ['type', 'typedunúmero']) || "Tableau").toLowerCase(),
+                                    energy: ENERGY_MAP[rawEnergy] || 'medium'
+                                };
+                            });
+                            setData(p => ({ ...p, acts: [...p.acts, ...news] }));
+                            showNotif(`🎬 ${news.length} numéros importés !`);
+                        }
+                    } catch (err) {
+                        alert("Erreur lors de la lecture du fichier Excel. Vérifiez le format.");
                     }
                 };
                 reader.readAsBinaryString(file);
@@ -172,15 +180,19 @@
                 let stats = {};
                 students.forEach(s => stats[s.id] = { load: 0, lastIdx: -2 });
 
+                // 1. Priorité aux Artistes Imposés (Verrous)
                 acts.forEach((act, idx) => {
-                    const req = actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
+                    const req = actRequirements[act.id] || { fixedStudents: [] };
                     (req.fixedStudents || []).forEach(sId => {
                         temp.push({ actId: act.id, studentId: sId });
-                        stats[sId].load++;
-                        stats[sId].lastIdx = idx;
+                        if (stats[sId]) {
+                            stats[sId].load++;
+                            stats[sId].lastIdx = idx;
+                        }
                     });
                 });
 
+                // 2. Répartition intelligente selon quotas et types
                 acts.forEach((act, idx) => {
                     const req = actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
                     const currentIn = temp.filter(a => a.actId === act.id).length;
@@ -209,20 +221,20 @@
             };
 
             return (
-                <div className="min-h-screen pb-20">
+                <div className="min-h-screen">
                     <header className="bg-white/80 h-24 px-10 flex justify-between items-center sticky top-0 z-50 border-b border-indigo-50 shadow-sm backdrop-blur-md">
                         <div className="flex items-center gap-5">
-                            <div className="bg-indigo-600 p-3 rounded-2xl text-white shadow-lg"><i data-lucide="sparkles"></i></div>
+                            <div className="bg-indigo-600 p-3 rounded-2xl text-white shadow-lg animate-float"><i data-lucide="sparkles"></i></div>
                             <div>
-                                <h1 className="text-2xl font-black text-indigo-950 uppercase tracking-tighter leading-none mb-1">Show Planner Pro</h1>
-                                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Direction Artistique & Régie</p>
+                                <h1 className="text-2xl font-black text-indigo-950 uppercase tracking-tighter leading-none mb-1 italic">Show Planner Pro</h1>
+                                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Régie Technique d'Excellence</p>
                             </div>
                         </div>
-                        {notif && <div className="bg-indigo-800 text-white px-8 py-3 rounded-2xl text-xs font-black shadow-2xl animate-bounce tracking-widest uppercase">{notif}</div>}
+                        {notif && <div className="bg-indigo-800 text-white px-8 py-3 rounded-2xl text-xs font-black shadow-2xl animate-bounce">{notif}</div>}
                     </header>
 
                     <main className="max-w-7xl mx-auto px-8 py-10">
-                        <nav className="flex bg-white p-2 rounded-[2.5rem] mb-16 w-fit mx-auto border border-indigo-100 shadow-sm overflow-x-auto custom-scrollbar">
+                        <nav className="flex bg-white p-2 rounded-[2.5rem] mb-16 w-fit mx-auto border border-indigo-100 shadow-lg overflow-x-auto custom-scrollbar">
                             {[
                                 { id: 'students', label: 'Artistes', icon: 'users' },
                                 { id: 'show', label: 'Spectacle', icon: 'music' },
@@ -248,7 +260,7 @@
             );
         }
 
-        // --- 4. SECTIONS DÉTAILLÉES ---
+        // --- 4. SECTIONS DÉTAILLÉES (LOGIQUE COMPLÈTE) ---
 
         function StudentManager({ data, formations, setData, handleFileUpload }) {
             const [form, setForm] = useState({ firstName: '', lastName: '', trainingName: '' });
@@ -266,7 +278,7 @@
                                 <input type="text" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-100 text-xs font-bold outline-none" placeholder="Nom" />
                                 <input type="text" value={form.trainingName} onChange={e => setForm({...form, trainingName: e.target.value})} list="f-list" className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-100 text-xs font-bold outline-none" placeholder="Formation" />
                                 <datalist id="f-list">{formations.map(f => <option key={f} value={f} />)}</datalist>
-                                <button className="w-full bg-indigo-600 text-white p-4 rounded-2xl font-black text-xs uppercase shadow-xl tracking-widest">Valider</button>
+                                <button className="w-full bg-indigo-600 text-white p-4 rounded-2xl font-black text-xs uppercase shadow-xl tracking-widest transition hover:bg-indigo-700">Valider</button>
                             </form>
                         </Card>
                         <div className="relative rounded-[2.5rem] border-2 border-dashed border-indigo-200 p-10 text-center bg-indigo-50/20 group hover:border-indigo-400 transition-colors">
@@ -277,15 +289,15 @@
                     </div>
                     <div className="lg:col-span-3">
                         <Card title={`Troupe de Scène (${data.students.length})`} icon="users">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
                                 {data.students.map(s => {
                                     const style = getFormationStyle(s.trainingName, formations);
                                     return (
-                                        <div key={s.id} className="p-5 bg-white border border-slate-100 rounded-[1.8rem] flex justify-between items-center group shadow-sm hover:border-indigo-100 transition-all hover:scale-[1.02]">
+                                        <div key={s.id} className="p-5 bg-white border border-slate-100 rounded-[2rem] flex justify-between items-center group shadow-sm hover:border-indigo-100 transition-all hover:scale-[1.02]">
                                             <div className="flex items-center gap-4">
-                                                <div className={`w-11 h-11 rounded-2xl ${style.bg} ${style.text} flex items-center justify-center font-black text-sm uppercase shadow-inner`}>{s.firstName[0]}</div>
+                                                <div className={`w-12 h-12 rounded-2xl ${style.bg} ${style.text} flex items-center justify-center font-black text-sm uppercase shadow-inner`}>{s.firstName[0]}</div>
                                                 <div className="truncate">
-                                                    <h4 className="font-black text-slate-800 text-[11px] uppercase leading-none mb-1.5">{s.firstName} {s.lastName}</h4>
+                                                    <h4 className="font-black text-slate-800 text-[12px] uppercase leading-none mb-1.5">{s.firstName} {s.lastName}</h4>
                                                     <p className="text-[10px] font-bold text-indigo-400 italic tracking-tight">{s.trainingName}</p>
                                                 </div>
                                             </div>
@@ -399,7 +411,7 @@
                             );
                         })}
                     </div>
-                    <div className="flex justify-center pb-24"><button onClick={onGenerate} className="px-24 py-8 bg-gradient-to-br from-indigo-600 via-purple-600 to-rose-600 rounded-[3.5rem] text-white font-black text-3xl shadow-2xl hover:scale-105 transition-all active:scale-95 border-b-[10px] border-indigo-900 tracking-tighter">LANCER LE CASTING MAGIQUE ✨</button></div>
+                    <div className="flex justify-center pb-24"><button onClick={onGenerate} className="px-24 py-8 bg-gradient-to-br from-indigo-600 via-purple-600 to-rose-600 rounded-[3.5rem] text-white font-black text-3xl shadow-2xl hover:scale-105 transition-all active:scale-95 border-b-[10px] border-indigo-900 tracking-tighter uppercase italic">Lancer le Casting Magique ✨</button></div>
                 </div>
             );
         }
@@ -444,6 +456,8 @@
         }
 
         function StatsDashboard({ data, formations }) {
+            const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } = window.Recharts || {};
+            
             const energyData = useMemo(() => data.acts.map((act, idx) => ({ 
                 name: act.name, 
                 idx: idx + 1, 
@@ -466,6 +480,8 @@
                 });
                 return alerts;
             }, [data]);
+
+            if (!LineChart) return <div className="p-20 text-center font-bold text-indigo-400">Chargement des graphiques haute précision...</div>;
 
             return (
                 <div className="space-y-12 animate-in zoom-in-95 duration-1000">
@@ -531,8 +547,8 @@
                     <i data-lucide="download" className="w-28 h-28 text-indigo-500 mx-auto mb-12 animate-bounce"></i>
                     <h3 className="font-black text-slate-800 text-5xl mb-8 uppercase tracking-tighter italic">Génération Dossier Régie</h3>
                     <p className="text-slate-400 font-bold text-lg uppercase tracking-widest mb-16 opacity-80 italic leading-relaxed">Conversion instantanée de la base de données vers Excel<br/>pour les feuilles de route et le conducteur technique.</p>
-                    <button onClick={exportExcel} className="bg-indigo-600 text-white px-24 py-8 rounded-[3rem] font-black text-2xl shadow-2xl hover:bg-indigo-700 transition-all active:scale-95 flex items-center gap-8 mx-auto border-b-[8px] border-indigo-900">
-                        <i data-lucide="download"></i> TÉLÉCHARGER LE DOSSIER (.XLSX)
+                    <button onClick={exportExcel} className="bg-indigo-600 text-white px-24 py-8 rounded-[3rem] font-black text-2xl shadow-2xl hover:bg-indigo-700 transition-all active:scale-95 flex items-center gap-8 mx-auto border-b-[8px] border-indigo-900 uppercase italic">
+                        <i data-lucide="download"></i> Télécharger le Dossier (.xlsx)
                     </button>
                 </div>
             );
