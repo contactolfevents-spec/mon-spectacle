@@ -15,7 +15,7 @@
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F8FAFF; margin: 0; overflow-x: hidden; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F8FAFF; margin: 0; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
         .glass-card { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); border: 1px solid white; }
@@ -29,8 +29,6 @@
             border-radius: 50%; animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .animate-float { animation: float 3s ease-in-out infinite; }
-        @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
     </style>
 </head>
 <body>
@@ -43,16 +41,9 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useCallback } = React;
+        const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, Legend } = window.Recharts;
 
-        // --- 1. UTILITAIRES DE NORMALISATION ---
-        const normalizeKey = (k) => k ? k.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '').trim() : "";
-        
-        const getValueByFlexibleKeys = (row, targets) => {
-            const normalizedTargets = targets.map(k => normalizeKey(k));
-            const foundKey = Object.keys(row).find(k => normalizedTargets.includes(normalizeKey(k)));
-            return foundKey ? row[foundKey] : null;
-        };
-
+        // --- 1. CONFIGURATION & STYLES ---
         const ENERGY_MAP = {
             'basse': 'low', 'bas': 'low', 'calme': 'low', 'low': 'low',
             'moyenne': 'medium', 'moyen': 'medium', 'medium': 'medium',
@@ -83,29 +74,38 @@
             { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200' }
         ];
 
+        // --- 2. UTILITAIRES ---
+        const normalizeKey = (k) => k ? k.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '').trim() : "";
+        
+        const getValueByFlexibleKeys = (row, targets) => {
+            const normalizedTargets = targets.map(k => normalizeKey(k));
+            const foundKey = Object.keys(row).find(k => normalizedTargets.includes(normalizeKey(k)));
+            return foundKey ? row[foundKey] : null;
+        };
+
         const getFormationStyle = (name, list) => {
             const i = list.indexOf(name);
             return FORMATION_COLORS[i % FORMATION_COLORS.length] || FORMATION_COLORS[0];
         };
 
-        // --- 2. COMPOSANTS UI GÉNÉRIQUES ---
-        const Card = ({ title, children, icon, actions, noPadding = false }) => {
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, []);
+        // --- 3. COMPOSANTS UI ---
+        const Card = ({ title, children, icon, actions }) => {
+            useEffect(() => { if (window.lucide) lucide.createIcons(); }, []);
             return (
-                <div className="bg-white/90 rounded-[2.5rem] shadow-xl border border-white overflow-hidden mb-8 transition-all hover:shadow-2xl">
+                <div className="bg-white/90 rounded-[2.5rem] shadow-xl border border-white overflow-hidden mb-8">
                     <div className="px-8 py-6 border-b border-indigo-50 flex justify-between items-center bg-gradient-to-r from-white to-indigo-50/20">
                         <div className="flex items-center gap-4">
-                            <div className="p-3 bg-indigo-100 rounded-2xl shadow-inner"><i data-lucide={icon} className="w-6 h-6 text-indigo-600"></i></div>
+                            <div className="p-3 bg-indigo-100 rounded-2xl"><i data-lucide={icon} className="w-6 h-6 text-indigo-600"></i></div>
                             <h3 className="font-black text-slate-800 text-xl tracking-tight uppercase italic">{title}</h3>
                         </div>
                         <div className="flex gap-2">{actions}</div>
                     </div>
-                    <div className={noPadding ? "" : "p-8"}>{children}</div>
+                    <div className="p-8">{children}</div>
                 </div>
             );
         };
 
-        // --- 3. APPLICATION PRINCIPALE ---
+        // --- 4. APPLICATION PRINCIPALE ---
         function App() {
             const [activeTab, setActiveTab] = useState('students');
             const [data, setData] = useState({ 
@@ -120,53 +120,46 @@
             const formations = useMemo(() => Array.from(new Set(data.students.map(s => s.trainingName))).sort(), [data.students]);
 
             useEffect(() => {
-                const saved = localStorage.getItem('show_planner_final_v10');
-                if (saved) {
-                    try { setData(JSON.parse(saved)); } catch (e) { console.error("Erreur de chargement", e); }
-                }
+                const saved = localStorage.getItem('show_planner_v10_ultimate');
+                if (saved) setData(JSON.parse(saved));
             }, []);
 
             useEffect(() => { 
-                localStorage.setItem('show_planner_final_v10', JSON.stringify(data));
-                if (window.lucide) window.lucide.createIcons();
+                localStorage.setItem('show_planner_v10_ultimate', JSON.stringify(data));
+                if (window.lucide) lucide.createIcons();
             }, [data, activeTab]);
 
             const showNotif = (msg) => { setNotif(msg); setTimeout(() => setNotif(null), 5000); };
 
             const handleFileUpload = (e, type) => {
                 const file = e.target.files[0];
-                if (!file) return;
                 const reader = new FileReader();
                 reader.onload = (evt) => {
-                    try {
-                        const workbook = XLSX.read(evt.target.result, { type: 'binary' });
-                        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                        const rows = XLSX.utils.sheet_to_json(sheet);
-                        
-                        if (type === 'students') {
-                            const news = rows.map(r => ({
+                    const workbook = XLSX.read(evt.target.result, { type: 'binary' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(sheet);
+                    
+                    if (type === 'students') {
+                        const news = rows.map(r => ({
+                            id: crypto.randomUUID(),
+                            firstName: getValueByFlexibleKeys(r, ['prenom', 'prenomeleve']) || "Artiste",
+                            lastName: getValueByFlexibleKeys(r, ['nom', 'nomeleve']) || "",
+                            trainingName: getValueByFlexibleKeys(r, ['formation', 'classe']) || "N/C"
+                        }));
+                        setData(p => ({ ...p, students: [...p.students, ...news] }));
+                        showNotif("Artistes importés ! 🎭");
+                    } else if (type === 'acts') {
+                        const news = rows.map(r => {
+                            const rawEnergy = normalizeKey(getValueByFlexibleKeys(r, ['energie', 'rythme']));
+                            return {
                                 id: crypto.randomUUID(),
-                                firstName: getValueByFlexibleKeys(r, ['prenom', 'prenomeleve', 'prenom eleve']) || "Artiste",
-                                lastName: getValueByFlexibleKeys(r, ['nom', 'nomeleve', 'nom eleve']) || "",
-                                trainingName: getValueByFlexibleKeys(r, ['formation', 'classe', 'discipline', 'option']) || "Animation"
-                            }));
-                            setData(p => ({ ...p, students: [...p.students, ...news] }));
-                            showNotif(`🎭 ${news.length} artistes importés !`);
-                        } else if (type === 'acts') {
-                            const news = rows.map(r => {
-                                const rawEnergy = normalizeKey(getValueByFlexibleKeys(r, ['energie', 'énergie', 'energy', 'rythme']));
-                                return {
-                                    id: crypto.randomUUID(),
-                                    name: getValueByFlexibleKeys(r, ['nom', 'name', 'numero', 'nomdunúmero']) || "Sans titre",
-                                    type: (getValueByFlexibleKeys(r, ['type', 'typedunúmero']) || "Tableau").toLowerCase(),
-                                    energy: ENERGY_MAP[rawEnergy] || 'medium'
-                                };
-                            });
-                            setData(p => ({ ...p, acts: [...p.acts, ...news] }));
-                            showNotif(`🎬 ${news.length} numéros importés !`);
-                        }
-                    } catch (err) {
-                        alert("Erreur lors de la lecture du fichier Excel. Vérifiez le format.");
+                                name: getValueByFlexibleKeys(r, ['nom', 'numero']) || "Sans titre",
+                                type: (getValueByFlexibleKeys(r, ['type']) || "Tableau").toLowerCase(),
+                                energy: ENERGY_MAP[rawEnergy] || 'medium'
+                            };
+                        });
+                        setData(p => ({ ...p, acts: [...p.acts, ...news] }));
+                        showNotif("Spectacle importé ! 🎬");
                     }
                 };
                 reader.readAsBinaryString(file);
@@ -180,21 +173,19 @@
                 let stats = {};
                 students.forEach(s => stats[s.id] = { load: 0, lastIdx: -2 });
 
-                // 1. Priorité aux Artistes Imposés (Verrous)
+                // 1. Verrous (Artistes imposés)
                 acts.forEach((act, idx) => {
                     const req = actRequirements[act.id] || { fixedStudents: [] };
                     (req.fixedStudents || []).forEach(sId => {
                         temp.push({ actId: act.id, studentId: sId });
-                        if (stats[sId]) {
-                            stats[sId].load++;
-                            stats[sId].lastIdx = idx;
-                        }
+                        stats[sId].load++;
+                        stats[sId].lastIdx = idx;
                     });
                 });
 
-                // 2. Répartition intelligente selon quotas et types
+                // 2. Casting automatique intelligent
                 acts.forEach((act, idx) => {
-                    const req = actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
+                    const req = actRequirements[act.id] || { total: 0, allowedFormations: [] };
                     const currentIn = temp.filter(a => a.actId === act.id).length;
                     const needed = Math.max(0, (req.total || 0) - currentIn);
                     const allowed = req.allowedFormations || [];
@@ -224,17 +215,14 @@
                 <div className="min-h-screen">
                     <header className="bg-white/80 h-24 px-10 flex justify-between items-center sticky top-0 z-50 border-b border-indigo-50 shadow-sm backdrop-blur-md">
                         <div className="flex items-center gap-5">
-                            <div className="bg-indigo-600 p-3 rounded-2xl text-white shadow-lg animate-float"><i data-lucide="sparkles"></i></div>
-                            <div>
-                                <h1 className="text-2xl font-black text-indigo-950 uppercase tracking-tighter leading-none mb-1 italic">Show Planner Pro</h1>
-                                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Régie Technique d'Excellence</p>
-                            </div>
+                            <div className="bg-indigo-600 p-3 rounded-2xl text-white shadow-lg"><i data-lucide="sparkles"></i></div>
+                            <h1 className="text-2xl font-black text-indigo-950 uppercase tracking-tighter">Show Planner Pro</h1>
                         </div>
                         {notif && <div className="bg-indigo-800 text-white px-8 py-3 rounded-2xl text-xs font-black shadow-2xl animate-bounce">{notif}</div>}
                     </header>
 
                     <main className="max-w-7xl mx-auto px-8 py-10">
-                        <nav className="flex bg-white p-2 rounded-[2.5rem] mb-16 w-fit mx-auto border border-indigo-100 shadow-lg overflow-x-auto custom-scrollbar">
+                        <nav className="flex bg-white p-2 rounded-[2.5rem] mb-16 w-fit mx-auto border border-indigo-100 shadow-sm overflow-x-auto custom-scrollbar">
                             {[
                                 { id: 'students', label: 'Artistes', icon: 'users' },
                                 { id: 'show', label: 'Spectacle', icon: 'music' },
@@ -243,7 +231,7 @@
                                 { id: 'stats', label: 'Succès', icon: 'bar-chart-3' },
                                 { id: 'export', label: 'Régie', icon: 'download' }
                             ].map(tab => (
-                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-3 px-10 py-4 rounded-3xl text-xs font-black transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-indigo-600 text-white shadow-2xl scale-105' : 'text-slate-400 hover:text-indigo-600'}`}>
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-3 px-10 py-4 rounded-3xl text-xs font-black transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-indigo-600 text-white shadow-xl scale-105' : 'text-slate-400 hover:text-indigo-600'}`}>
                                     <i data-lucide={tab.icon} className="w-4 h-4"></i>{tab.label.toUpperCase()}
                                 </button>
                             ))}
@@ -254,54 +242,38 @@
                         {activeTab === 'proposal' && <ProposalEngine data={data} formations={formations} setData={setData} onGenerate={generateMagic} />}
                         {activeTab === 'manual' && <ManualAllocation data={data} formations={formations} setData={setData} />}
                         {activeTab === 'stats' && <StatsDashboard data={data} formations={formations} />}
-                        {activeTab === 'export' && <ExportDashboard data={data} formations={formations} />}
+                        {activeTab === 'export' && <ExportDashboard data={data} />}
                     </main>
                 </div>
             );
         }
 
-        // --- 4. SECTIONS DÉTAILLÉES (LOGIQUE COMPLÈTE) ---
-
+        // --- SECTION : ARTISTES ---
         function StudentManager({ data, formations, setData, handleFileUpload }) {
-            const [form, setForm] = useState({ firstName: '', lastName: '', trainingName: '' });
-            const add = (e) => {
-                e.preventDefault(); if (!form.firstName || !form.lastName) return;
-                setData(p => ({ ...p, students: [...p.students, { ...form, id: crypto.randomUUID() }] }));
-                setForm({ firstName: '', lastName: '', trainingName: '' });
-            };
             return (
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
                     <div className="space-y-8">
-                        <Card title="Ajout manuel" icon="plus">
-                            <form onSubmit={add} className="space-y-4">
-                                <input type="text" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-100 text-xs font-bold outline-none" placeholder="Prénom" />
-                                <input type="text" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-100 text-xs font-bold outline-none" placeholder="Nom" />
-                                <input type="text" value={form.trainingName} onChange={e => setForm({...form, trainingName: e.target.value})} list="f-list" className="w-full bg-slate-50 px-5 py-4 rounded-2xl border border-slate-100 text-xs font-bold outline-none" placeholder="Formation" />
-                                <datalist id="f-list">{formations.map(f => <option key={f} value={f} />)}</datalist>
-                                <button className="w-full bg-indigo-600 text-white p-4 rounded-2xl font-black text-xs uppercase shadow-xl tracking-widest transition hover:bg-indigo-700">Valider</button>
-                            </form>
-                        </Card>
                         <div className="relative rounded-[2.5rem] border-2 border-dashed border-indigo-200 p-10 text-center bg-indigo-50/20 group hover:border-indigo-400 transition-colors">
                             <input type="file" accept=".xlsx, .xls" onChange={(e) => handleFileUpload(e, 'students')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                            <i data-lucide="upload" className="w-10 h-10 text-indigo-400 mx-auto mb-3 group-hover:scale-110 transition-transform"></i>
+                            <i data-lucide="upload" className="w-10 h-10 text-indigo-400 mx-auto mb-3"></i>
                             <h4 className="font-black text-indigo-900 text-[10px] uppercase tracking-widest leading-relaxed">Import Excel Artistes</h4>
                         </div>
                     </div>
                     <div className="lg:col-span-3">
-                        <Card title={`Troupe de Scène (${data.students.length})`} icon="users">
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
+                        <Card title={`Troupe (${data.students.length})`} icon="users">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                                 {data.students.map(s => {
                                     const style = getFormationStyle(s.trainingName, formations);
                                     return (
-                                        <div key={s.id} className="p-5 bg-white border border-slate-100 rounded-[2rem] flex justify-between items-center group shadow-sm hover:border-indigo-100 transition-all hover:scale-[1.02]">
+                                        <div key={s.id} className="p-5 bg-white border border-slate-100 rounded-3xl flex justify-between items-center group shadow-sm hover:border-indigo-100 transition-all hover:scale-[1.02]">
                                             <div className="flex items-center gap-4">
-                                                <div className={`w-12 h-12 rounded-2xl ${style.bg} ${style.text} flex items-center justify-center font-black text-sm uppercase shadow-inner`}>{s.firstName[0]}</div>
-                                                <div className="truncate">
-                                                    <h4 className="font-black text-slate-800 text-[12px] uppercase leading-none mb-1.5">{s.firstName} {s.lastName}</h4>
-                                                    <p className="text-[10px] font-bold text-indigo-400 italic tracking-tight">{s.trainingName}</p>
+                                                <div className={`w-10 h-10 rounded-2xl ${style.bg} ${style.text} flex items-center justify-center font-black text-xs uppercase`}>{s.firstName[0]}</div>
+                                                <div>
+                                                    <h4 className="font-black text-slate-800 text-[11px] uppercase leading-none mb-1">{s.firstName} {s.lastName}</h4>
+                                                    <p className="text-[9px] font-bold text-indigo-400 italic">{s.trainingName}</p>
                                                 </div>
                                             </div>
-                                            <button onClick={() => setData(p => ({...p, students: p.students.filter(x => x.id !== s.id)}))} className="text-rose-100 hover:text-rose-500 transition-colors p-2"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
+                                            <button onClick={() => setData(p => ({...p, students: p.students.filter(x => x.id !== s.id)}))} className="text-rose-100 hover:text-rose-500"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
                                         </div>
                                     );
                                 })}
@@ -312,45 +284,39 @@
             );
         }
 
+        // --- SECTION : SPECTACLE ---
         function ShowManager({ data, setData, handleFileUpload }) {
             return (
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
-                    <div className="space-y-8">
-                        <div className="relative rounded-[2.5rem] border-2 border-dashed border-purple-200 p-12 text-center bg-purple-50/20 group hover:border-purple-400 transition-colors h-full flex flex-col justify-center">
-                            <input type="file" accept=".xlsx, .xls" onChange={(e) => handleFileUpload(e, 'acts')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                            <i data-lucide="upload" className="w-12 h-12 text-purple-400 mx-auto mb-4 group-hover:scale-110 transition-transform"></i>
-                            <h4 className="font-black text-purple-900 text-[11px] uppercase tracking-widest leading-relaxed">Import Excel Numéros</h4>
-                        </div>
+                <Card title="Séquence du Spectacle" icon="music">
+                    <div className="p-10 rounded-[2.5rem] border-2 border-dashed border-purple-200 text-center bg-white mb-10">
+                        <input type="file" onChange={(e) => handleFileUpload(e, 'acts')} className="text-xs" />
                     </div>
-                    <div className="lg:col-span-3">
-                        <Card title="Séquence du Spectacle" icon="music">
-                            <div className="space-y-4">
-                                {data.acts.map((act, i) => {
-                                    const typeStyle = ACT_TYPE_STYLES[act.type] || ACT_TYPE_STYLES.default;
-                                    const energyStyle = ENERGY_STYLES[act.energy] || ENERGY_STYLES.medium;
-                                    return (
-                                        <div key={act.id} className="flex items-center justify-between p-6 bg-white border border-slate-100 rounded-[2.2rem] shadow-sm hover:shadow-md transition-all">
-                                            <div className="flex items-center gap-8">
-                                                <span className="text-4xl font-black text-slate-100 italic">{(i + 1).toString().padStart(2, '0')}</span>
-                                                <div>
-                                                    <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-3 tracking-tight">{act.name}</h4>
-                                                    <div className="flex gap-2.5">
-                                                        <span className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase border ${typeStyle.bg} ${typeStyle.text}`}>{act.type}</span>
-                                                        <span className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase ${energyStyle.bg} ${energyStyle.text}`}>⚡ {energyStyle.label}</span>
-                                                    </div>
-                                                </div>
+                    <div className="space-y-4">
+                        {data.acts.map((act, i) => {
+                            const typeStyle = ACT_TYPE_STYLES[act.type] || ACT_TYPE_STYLES.default;
+                            const energyStyle = ENERGY_STYLES[act.energy] || ENERGY_STYLES.medium;
+                            return (
+                                <div key={act.id} className="flex items-center justify-between p-6 bg-white border border-slate-100 rounded-[2rem] shadow-sm">
+                                    <div className="flex items-center gap-6">
+                                        <span className="text-3xl font-black text-slate-100 italic">{(i + 1).toString().padStart(2, '0')}</span>
+                                        <div>
+                                            <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-2">{act.name}</h4>
+                                            <div className="flex gap-2">
+                                                <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border ${typeStyle.bg} ${typeStyle.text}`}>{act.type}</span>
+                                                <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase ${energyStyle.bg} ${energyStyle.text}`}>⚡ {energyStyle.label}</span>
                                             </div>
-                                            <button onClick={() => setData(p => ({...p, acts: p.acts.filter(x => x.id !== act.id)}))} className="text-rose-100 hover:text-rose-500 transition-colors p-3"><i data-lucide="trash-2" className="w-5 h-5"></i></button>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        </Card>
+                                    </div>
+                                    <button onClick={() => setData(p => ({...p, acts: p.acts.filter(x => x.id !== act.id)}))} className="text-rose-100 hover:text-rose-500 transition-colors p-3"><i data-lucide="trash-2" className="w-5 h-5"></i></button>
+                                </div>
+                            );
+                        })}
                     </div>
-                </div>
+                </Card>
             );
         }
 
+        // --- SECTION : MAGIE (RESTAURÉE) ---
         function ProposalEngine({ data, formations, setData, onGenerate }) {
             const [fixedSearch, setFixedSearch] = useState({});
             const toggleFixed = (actId, sId) => {
@@ -361,90 +327,78 @@
                 });
             };
             return (
-                <div className="max-w-6xl mx-auto space-y-12 animate-in slide-in-from-bottom-5 duration-1000">
-                    <div className="text-center space-y-3">
-                        <h2 className="text-5xl font-black text-slate-800 uppercase tracking-tighter italic decoration-indigo-500 underline underline-offset-8">🪄 Magie de Répartition</h2>
-                        <p className="text-slate-400 text-[11px] font-black tracking-[0.3em] uppercase opacity-70">Équilibrage automatique des ressources</p>
-                    </div>
-                    
+                <div className="space-y-12">
                     <Card title="Quotas de charge par formation" icon="gauge">
                         <div className="flex flex-wrap gap-5">
                             {formations.map(f => (
-                                <div key={f} className="px-6 py-4 rounded-3xl border bg-slate-50 flex items-center gap-5 shadow-inner">
-                                    <span className="text-[11px] font-black uppercase text-indigo-600 tracking-wider">{f}</span>
-                                    <input type="number" value={data.formationLimits[f] || ''} onChange={e => setData(prev => ({...prev, formationLimits: {...prev.formationLimits, [f]: parseInt(e.target.value)}}))} className="w-16 bg-white px-4 py-2 rounded-[1rem] text-sm font-black text-indigo-700 outline-none border border-indigo-100 shadow-sm" placeholder="∞" />
+                                <div key={f} className="px-5 py-3 rounded-2xl border bg-slate-50 flex items-center gap-4">
+                                    <span className="text-[10px] font-black uppercase text-indigo-600">{f}</span>
+                                    <input type="number" value={data.formationLimits[f] || ''} onChange={e => setData(prev => ({...prev, formationLimits: {...prev.formationLimits, [f]: parseInt(e.target.value)}}))} className="w-14 bg-white px-3 py-2 rounded-xl text-xs font-black" placeholder="∞" />
                                 </div>
                             ))}
                         </div>
                     </Card>
-
                     <div className="space-y-6">
                         {data.acts.map((act, idx) => {
                             const req = data.actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
                             const matches = data.students.filter(s => `${s.firstName} ${s.lastName}`.toLowerCase().includes((fixedSearch[act.id] || "").toLowerCase())).slice(0, 5);
                             return (
-                                <div key={act.id} className="bg-white rounded-[3rem] p-10 shadow-2xl border border-white flex flex-col lg:flex-row gap-12 hover:border-indigo-100 transition-all group">
-                                    <div className="lg:w-64 shrink-0 border-r pr-10 border-slate-50">
-                                        <div className="text-3xl font-black text-slate-100 italic mb-3 group-hover:text-indigo-50 transition-colors">{(idx + 1).toString().padStart(2, '0')}</div>
-                                        <h4 className="text-[14px] font-black text-slate-800 uppercase mb-6 leading-tight tracking-tight">{act.name}</h4>
-                                        <div className="flex items-center gap-4 bg-indigo-50/50 p-5 rounded-3xl border border-indigo-100 shadow-inner">
-                                            <i data-lucide="users" className="w-6 h-6 text-indigo-400"></i>
-                                            <input type="number" value={req.total || ''} onChange={e => setData(p => ({...p, actRequirements: {...p.actRequirements, [act.id]: {...req, total: parseInt(e.target.value) || 0}}}))} className="w-full bg-transparent text-center font-black text-indigo-700 outline-none text-base" placeholder="Effectif" />
-                                        </div>
+                                <div key={act.id} className="bg-white rounded-[2.5rem] p-8 shadow-xl border border-white flex flex-col lg:flex-row gap-10 hover:border-indigo-100 transition-all">
+                                    <div className="lg:w-64 border-r pr-8">
+                                        <div className="text-2xl font-black text-slate-100 italic mb-2">{(idx + 1).toString().padStart(2, '0')}</div>
+                                        <h4 className="text-[12px] font-black text-slate-800 uppercase mb-4">{act.name}</h4>
+                                        <input type="number" value={req.total || ''} onChange={e => setData(p => ({...p, actRequirements: {...p.actRequirements, [act.id]: {...req, total: parseInt(e.target.value) || 0}}}))} className="w-full bg-indigo-50 p-4 rounded-2xl text-center font-black text-indigo-700 outline-none" placeholder="Nb d'élèves" />
                                     </div>
-                                    <div className="flex-1 space-y-5">
-                                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2 block">Spécialités autorisées</label>
-                                        <div className="flex flex-wrap gap-3">
+                                    <div className="flex-1 space-y-4">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Formations autorisées</label>
+                                        <div className="flex flex-wrap gap-2.5">
                                             {formations.map(f => {
                                                 const active = req.allowedFormations.includes(f);
-                                                return <button key={f} onClick={() => setData(p => { const next = active ? req.allowedFormations.filter(x => x !== f) : [...req.allowedFormations, f]; return {...p, actRequirements: {...p.actRequirements, [act.id]: {...req, allowedFormations: next}}}; })} className={`px-5 py-2.5 rounded-2xl text-[10px] font-black transition-all border-2 ${active ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl scale-105' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>{f}</button>;
+                                                return <button key={f} onClick={() => setData(p => { const next = active ? req.allowedFormations.filter(x => x !== f) : [...req.allowedFormations, f]; return {...p, actRequirements: {...p.actRequirements, [act.id]: {...req, allowedFormations: next}}}; })} className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all border ${active ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>{f}</button>;
                                             })}
                                         </div>
                                     </div>
-                                    <div className="lg:w-80 shrink-0 space-y-5 border-l pl-10 border-slate-50">
-                                        <div className="relative"><i data-lucide="search" className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300"></i><input type="text" placeholder="Imposer un artiste..." value={fixedSearch[act.id] || ""} onChange={(e) => setFixedSearch({...fixedSearch, [act.id]: e.target.value})} className="w-full pl-12 pr-5 py-4 rounded-[1.5rem] bg-slate-50 text-[11px] font-bold border-none outline-none focus:ring-4 focus:ring-amber-50" />
-                                            {fixedSearch[act.id] && <div className="absolute top-full left-0 right-0 z-50 bg-white border-2 border-indigo-50 rounded-2xl mt-3 shadow-2xl overflow-hidden">{matches.map(s => <button key={s.id} onClick={() => { toggleFixed(act.id, s.id); setFixedSearch({...fixedSearch, [act.id]: ""}); }} className="w-full text-left px-6 py-4 text-[11px] hover:bg-indigo-50 font-black uppercase text-slate-600 border-b last:border-0">{s.firstName} {s.lastName}</button>)}</div>}
+                                    <div className="lg:w-80 space-y-4">
+                                        <div className="relative">
+                                            <input type="text" placeholder="Imposer un artiste..." value={fixedSearch[act.id] || ""} onChange={(e) => setFixedSearch({...fixedSearch, [act.id]: e.target.value})} className="w-full px-5 py-3 rounded-2xl bg-slate-50 text-[11px] font-bold border-none outline-none focus:ring-2 focus:ring-indigo-100" />
+                                            {fixedSearch[act.id] && <div className="absolute top-full left-0 right-0 z-50 bg-white border rounded-2xl shadow-2xl overflow-hidden mt-2">{matches.map(s => <button key={s.id} onClick={() => { toggleFixed(act.id, s.id); setFixedSearch({...fixedSearch, [act.id]: ""}); }} className="w-full text-left px-5 py-3 text-[11px] hover:bg-indigo-50 font-black uppercase border-b last:border-0">{s.firstName} {s.lastName}</button>)}</div>}
                                         </div>
-                                        <div className="flex flex-wrap gap-2.5">{req.fixedStudents.map(sId => { const s = data.students.find(x => x.id === sId); return s ? (<div key={sId} className="flex items-center gap-3 pl-4 pr-3 py-2 rounded-2xl border-2 bg-amber-50 border-amber-200 text-amber-700 text-[10px] font-black uppercase tracking-tight shadow-sm"><i data-lucide="lock" className="w-3.5 h-3.5 opacity-50"></i> {s.firstName} <button onClick={() => toggleFixed(act.id, sId)} className="p-1 hover:text-amber-900"><i data-lucide="x" className="w-4 h-4"></i></button></div>) : null; })}</div>
+                                        <div className="flex flex-wrap gap-2">{req.fixedStudents.map(sId => { const s = data.students.find(x => x.id === sId); return s ? (<div key={sId} className="flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-xl border bg-amber-50 border-amber-200 text-amber-700 text-[9px] font-black uppercase"><i data-lucide="lock" className="w-3 h-3"></i> {s.firstName} <button onClick={() => toggleFixed(act.id, sId)}><i data-lucide="x" className="w-4 h-4"></i></button></div>) : null; })}</div>
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
-                    <div className="flex justify-center pb-24"><button onClick={onGenerate} className="px-24 py-8 bg-gradient-to-br from-indigo-600 via-purple-600 to-rose-600 rounded-[3.5rem] text-white font-black text-3xl shadow-2xl hover:scale-105 transition-all active:scale-95 border-b-[10px] border-indigo-900 tracking-tighter uppercase italic">Lancer le Casting Magique ✨</button></div>
+                    <div className="flex justify-center pb-20"><button onClick={onGenerate} className="px-24 py-8 bg-indigo-600 rounded-[3rem] text-white font-black text-2xl shadow-2xl hover:scale-110 transition active:scale-95">LANCER LE CALCUL ✨</button></div>
                 </div>
             );
         }
 
+        // --- SECTION : COULISSES (RESTAURÉE) ---
         function ManualAllocation({ data, formations, setData }) {
-            const [selectedActId, setSelectedActId] = useState(data.acts[0]?.id);
-            const [search, setSearch] = useState("");
-            const currentAct = data.acts.find(a => a.id === selectedActId);
-            const castIds = new Set(data.assignments.filter(a => a.actId === selectedActId).map(a => a.studentId));
+            const [selectedId, setSelectedId] = useState(data.acts[0]?.id);
+            const currentAct = data.acts.find(a => a.id === selectedId);
+            const castIds = new Set(data.assignments.filter(a => a.actId === selectedId).map(a => a.studentId));
             return (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                    <div className="lg:col-span-4 space-y-4 max-h-[850px] overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="lg:col-span-4 space-y-3 max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
                         {data.acts.map((act, idx) => (
-                            <button key={act.id} onClick={() => setSelectedActId(act.id)} className={`w-full text-left p-7 rounded-[2.5rem] border-2 transition-all flex items-center justify-between shadow-sm ${selectedActId === act.id ? 'bg-indigo-600 text-white shadow-2xl scale-[1.03] border-indigo-400' : 'bg-white text-slate-600 border-indigo-50 hover:border-indigo-200'}`}>
-                                <div className="text-[12px] font-black uppercase tracking-tight">{idx + 1}. {act.name}</div>
-                                <div className={`w-12 h-12 rounded-[1.2rem] flex items-center justify-center font-black text-sm ${selectedActId === act.id ? 'bg-indigo-500 text-white shadow-inner' : 'bg-indigo-50 text-indigo-600'}`}>{data.assignments.filter(a => a.actId === act.id).length}</div>
+                            <button key={act.id} onClick={() => setSelectedId(act.id)} className={`w-full text-left p-6 rounded-[2rem] border transition-all flex items-center justify-between ${selectedId === act.id ? 'bg-indigo-600 text-white shadow-2xl scale-[1.02]' : 'bg-white text-slate-600 border-indigo-50'}`}>
+                                <div className="text-[11px] font-black uppercase tracking-tight">{idx + 1}. {act.name}</div>
+                                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs ${selectedId === act.id ? 'bg-indigo-500' : 'bg-indigo-50 text-indigo-600'}`}>{data.assignments.filter(a => a.actId === act.id).length}</div>
                             </button>
                         ))}
                     </div>
                     <div className="lg:col-span-8">
                         <Card title={`Distribution : ${currentAct?.name || '---'}`} icon="star">
-                            <div className="relative mb-12"><i data-lucide="search" className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-300"></i><input type="text" placeholder="Rechercher un artiste..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-16 pr-8 py-6 rounded-[2.2rem] border-2 border-indigo-50 bg-indigo-50/20 text-sm font-black outline-none focus:ring-4 focus:ring-indigo-100 transition-all" /></div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5">
-                                {data.students.filter(s => `${s.firstName} ${s.lastName}`.toLowerCase().includes(search.toLowerCase())).map(student => {
-                                    const isAssigned = castIds.has(student.id);
+                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                                {data.students.map(student => {
+                                    const assigned = castIds.has(student.id);
                                     const style = getFormationStyle(student.trainingName, formations);
                                     return (
-                                        <button key={student.id} onClick={() => { setData(p => ({ ...p, assignments: isAssigned ? p.assignments.filter(a => !(a.actId === selectedActId && a.studentId === student.id)) : [...p.assignments, { actId: selectedActId, studentId: student.id }] })); }} className={`relative p-5 rounded-[2rem] border-2 text-left transition-all ${isAssigned ? `${style.bg} ${style.border} shadow-xl scale-110 z-10` : 'bg-white border-slate-50 opacity-60 hover:opacity-100 hover:scale-[1.03]'}`}>
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-white/70 flex items-center justify-center font-black text-xs shrink-0 uppercase shadow-inner">{student.firstName[0]}</div>
-                                                <div className="truncate"><p className="font-black text-[11px] uppercase text-slate-800 leading-none truncate mb-1">{student.firstName} {student.lastName}</p><p className="text-[8px] font-bold text-slate-400 uppercase italic tracking-tighter">{data.assignments.filter(a => a.studentId === student.id).length} numéros</p></div>
-                                            </div>
-                                            {isAssigned && <div className="absolute -top-3 -right-3 bg-indigo-600 text-white p-2 rounded-full shadow-2xl border-4 border-white animate-in zoom-in-50"><i data-lucide="check" className="w-4 h-4"></i></div>}
+                                        <button key={student.id} onClick={() => { setData(p => ({ ...p, assignments: assigned ? p.assignments.filter(a => !(a.actId === selectedId && a.studentId === student.id)) : [...p.assignments, { actId: selectedId, studentId: student.id }] })); }} className={`relative p-4 rounded-3xl border-2 text-left transition-all ${assigned ? `${style.bg} ${style.border} shadow-lg scale-105 z-10` : 'bg-white border-slate-50'}`}>
+                                            <div className="truncate"><p className="font-black text-[10px] uppercase text-slate-800 leading-none truncate mb-1">{student.firstName} {student.lastName}</p><p className="text-[7px] font-bold text-slate-400 mt-1 uppercase italic tracking-tighter">Charge: {data.assignments.filter(a => a.studentId === student.id).length}</p></div>
+                                            {assigned && <div className="absolute -top-2 -right-2 bg-indigo-600 text-white p-1 rounded-full shadow-lg border-2 border-white"><i data-lucide="check" className="w-3 h-3"></i></div>}
                                         </button>
                                     );
                                 })}
@@ -455,20 +409,10 @@
             );
         }
 
+        // --- SECTION : SUCCÈS ---
         function StatsDashboard({ data, formations }) {
-            const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } = window.Recharts || {};
-            
-            const energyData = useMemo(() => data.acts.map((act, idx) => ({ 
-                name: act.name, 
-                idx: idx + 1, 
-                val: act.energy === 'high' ? 3 : act.energy === 'medium' ? 2 : 1 
-            })), [data.acts]);
-
-            const workload = useMemo(() => formations.map(f => ({ 
-                name: f, 
-                count: data.assignments.filter(a => data.students.find(s => s.id === a.studentId)?.trainingName === f).length 
-            })), [data.assignments, formations, data.students]);
-
+            const energyData = data.acts.map((act, idx) => ({ n: idx + 1, v: act.energy === 'high' ? 3 : act.energy === 'low' ? 1 : 2 }));
+            const workload = formations.map(f => ({ name: f, count: data.assignments.filter(a => data.students.find(s => s.id === a.studentId)?.trainingName === f).length }));
             const consecutive = useMemo(() => {
                 const alerts = [];
                 data.students.forEach(student => {
@@ -481,38 +425,35 @@
                 return alerts;
             }, [data]);
 
-            if (!LineChart) return <div className="p-20 text-center font-bold text-indigo-400">Chargement des graphiques haute précision...</div>;
-
             return (
-                <div className="space-y-12 animate-in zoom-in-95 duration-1000">
+                <div className="space-y-10">
                     {consecutive.length > 0 && (
                         <Card title="Alerte : Enchaînements critiques (Repos 0)" icon="alert-triangle">
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-                                {consecutive.map((a,i) => (<div key={i} className="p-5 bg-rose-50 border-2 border-rose-100 rounded-[2rem] flex items-center gap-5 shadow-sm hover:scale-[1.02] transition-transform"><div className="w-10 h-10 rounded-2xl bg-rose-200 text-rose-700 flex items-center justify-center font-black shadow-inner italic">!</div><div><p className="font-black text-rose-800 text-[11px] uppercase tracking-tighter leading-none mb-1">{a.name}</p><p className="text-[9px] text-rose-400 italic font-bold leading-tight">{a.act1} ➔ {a.act2}</p></div></div>))}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                {consecutive.map((a,i) => (<div key={i} className="p-4 bg-rose-50 border border-rose-100 rounded-2xl"><p className="font-black text-rose-700 text-[10px] uppercase">{a.name}</p><p className="text-[8px] text-rose-400 italic font-bold mt-1">{a.act1} ➔ {a.act2}</p></div>))}
                             </div>
                         </Card>
                     )}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                        <Card title="Rythme Énergétique du Show" icon="activity">
-                            <div className="h-[400px] mt-8">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                        <Card title="Rythme Énergétique" icon="activity">
+                            <div className="h-80 mt-6">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <LineChart data={energyData}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEF2FF" />
-                                        <XAxis dataKey="idx" stroke="#94A3B8" />
+                                        <XAxis dataKey="n" stroke="#94A3B8" />
                                         <YAxis hide domain={[0, 4]} />
-                                        <Tooltip contentStyle={{borderRadius:'24px', border:'none', boxShadow:'0 25px 50px -12px rgb(0 0 0 / 0.15)', textTransform:'uppercase', fontSize:'10px', fontWeight:'800'}} />
-                                        <Line type="monotone" dataKey="val" stroke="#6366F1" strokeWidth={8} dot={{ r: 10, fill: '#6366F1', stroke:'#fff', strokeWidth:4 }} activeDot={{ r: 12 }} />
+                                        <Tooltip />
+                                        <Line type="monotone" dataKey="v" stroke="#6366F1" strokeWidth={6} dot={{ r: 8, fill: '#6366F1', stroke: '#fff', strokeWidth: 3 }} />
                                     </LineChart>
                                 </ResponsiveContainer>
                             </div>
                         </Card>
-                        <Card title="Charge Globale par Formation" icon="bar-chart-3">
-                            <div className="h-[400px] mt-8">
+                        <Card title="Charge par Formation" icon="bar-chart-3">
+                            <div className="h-80 mt-6">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <BarChart data={workload.sort((a,b)=>b.count-a.count)}>
-                                        <XAxis dataKey="name" fontSize={11} axisLine={false} tickLine={false} stroke="#64748b" fontWeight="800" />
-                                        <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'20px', border:'none'}} />
-                                        <Bar dataKey="count" fill="#6366F1" radius={[18, 18, 0, 0]} barSize={35} />
+                                        <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} />
+                                        <Bar dataKey="count" fill="#6366F1" radius={[15, 15, 0, 0]} barSize={30} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
@@ -522,33 +463,26 @@
             );
         }
 
-        function ExportDashboard({ data, formations }) {
+        // --- SECTION : RÉGIE (EXPORT) ---
+        function ExportDashboard({ data }) {
             const exportExcel = () => {
                 const workbook = XLSX.utils.book_new();
-                const sheetData = data.students.map(s => {
-                    const myActs = data.assignments.filter(a => a.studentId === s.id).map(a => {
-                        const act = data.acts.find(ac => ac.id === a.actId);
-                        return act ? act.name : "";
-                    });
-                    return {
-                        "NOM DE L'ARTISTE": `${s.firstName} ${s.lastName}`.toUpperCase(),
-                        "FORMATION": s.trainingName.toUpperCase(),
-                        "TOTAL DE NUMÉROS": myActs.length,
-                        "FEUILLE DE ROUTE": myActs.join(' | ')
-                    };
-                });
-                const ws = XLSX.utils.json_to_sheet(sheetData);
-                XLSX.utils.book_append_sheet(workbook, ws, "Planning Régie");
+                const studentSchedules = data.students.map(s => ({
+                    "Artiste": `${s.firstName} ${s.lastName}`.toUpperCase(),
+                    "Formation": s.trainingName,
+                    "Total Numéros": data.assignments.filter(a => a.studentId === s.id).length,
+                    "Planning": data.assignments.filter(a => a.studentId === s.id).map(a => data.acts.find(act => act.id === a.actId)?.name).join(' | ')
+                }));
+                XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(studentSchedules), "Export Régie");
                 XLSX.writeFile(workbook, `Regie_Show_Planner_${new Date().toLocaleDateString()}.xlsx`);
             };
-
             return (
-                <div className="max-w-4xl mx-auto text-center p-24 bg-white rounded-[5rem] shadow-[0_50px_100px_-20px_rgba(99,102,241,0.15)] border-b-[12px] border-indigo-600 animate-in zoom-in-95 duration-1000">
-                    <i data-lucide="download" className="w-28 h-28 text-indigo-500 mx-auto mb-12 animate-bounce"></i>
-                    <h3 className="font-black text-slate-800 text-5xl mb-8 uppercase tracking-tighter italic">Génération Dossier Régie</h3>
-                    <p className="text-slate-400 font-bold text-lg uppercase tracking-widest mb-16 opacity-80 italic leading-relaxed">Conversion instantanée de la base de données vers Excel<br/>pour les feuilles de route et le conducteur technique.</p>
-                    <button onClick={exportExcel} className="bg-indigo-600 text-white px-24 py-8 rounded-[3rem] font-black text-2xl shadow-2xl hover:bg-indigo-700 transition-all active:scale-95 flex items-center gap-8 mx-auto border-b-[8px] border-indigo-900 uppercase italic">
-                        <i data-lucide="download"></i> Télécharger le Dossier (.xlsx)
+                <div className="max-w-4xl mx-auto text-center p-24 bg-white rounded-[4rem] shadow-2xl border-8 border-indigo-50 animate-in zoom-in-95">
+                    <i data-lucide="download" className="w-24 h-24 text-indigo-500 mx-auto mb-10 animate-bounce"></i>
+                    <h3 className="font-black text-slate-800 text-5xl mb-6 uppercase tracking-tighter">Dossier de Régie</h3>
+                    <p className="text-slate-400 font-bold text-base mb-14 opacity-70 italic leading-relaxed">Génération automatique des feuilles de route et statistiques de charge.</p>
+                    <button onClick={exportExcel} className="bg-indigo-600 text-white px-20 py-7 rounded-[2.5rem] font-black text-2xl shadow-2xl hover:bg-indigo-700 transition active:scale-95 flex items-center gap-6 mx-auto">
+                        <i data-lucide="download"></i> TÉLÉCHARGER LE DOSSIER (.XLSX)
                     </button>
                 </div>
             );
