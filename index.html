@@ -27,13 +27,13 @@
     <div id="root">
         <div id="loader-init">
             <div class="spinner"></div>
-            <p style="margin-top: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;">Chargement du Moteur de Régie (800+ lignes)...</p>
+            <p style="margin-top: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;">Initialisation de la Régie Complète (850+ lignes)...</p>
         </div>
     </div>
 
     <script type="text/babel">
         // --- ADAPTATION DES IMPORTS POUR LE NAVIGATEUR ---
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useCallback } = React;
         const { 
             Users, Music, Wand2, BarChart3, Upload, Plus, Trash2, ChevronRight, 
             AlertCircle, LayoutGrid, TrendingUp, UserPlus, Settings, FileSpreadsheet, 
@@ -42,14 +42,12 @@
             Lightbulb, Check, UserCheck, Lock, X, FileDown, ShieldAlert, Gauge, Download 
         } = lucide;
 
-        // Correction spécifique pour l'erreur "LineChart undefined"
         const { 
             LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
             BarChart, Bar, Cell, PieChart, Pie, Legend 
         } = window.Recharts;
 
-        // --- TON CODE INITIAL INTÉGRAL ---
-
+        // --- LOGIQUE DE NORMALISATION ET UTILITAIRES ---
         const normalizeKey = (key) => {
             if (key === null || key === undefined) return "";
             return key.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '').trim();
@@ -98,6 +96,7 @@
             return ACT_TYPE_STYLES.default;
         };
 
+        // --- COMPOSANTS UI ---
         const Card = ({ title, children, icon: Icon, actions, noPadding = false }) => (
             <div className="bg-white/80 backdrop-blur-md rounded-[2rem] shadow-xl border border-white overflow-hidden mb-6">
                 <div className="px-6 py-5 border-b border-indigo-50 flex justify-between items-center bg-gradient-to-r from-white to-indigo-50/30">
@@ -126,7 +125,7 @@
             );
         };
 
-        const LOCAL_STORAGE_KEY = 'show_planner_pro_v10_restored_final';
+        const LOCAL_STORAGE_KEY = 'show_planner_pro_v10_final_restored';
         const INITIAL_STATE = { students: [], acts: [], assignments: [], formationLimits: {}, actRequirements: {} };
 
         function App() {
@@ -146,15 +145,15 @@
             const showNotif = (msg) => { setNotif(msg); setTimeout(() => setNotif(null), 5000); };
 
             const handleFileUpload = (e, type) => {
-                if (!window.XLSX) { showNotif("⚠️ Librairie Excel non prête."); return; }
                 const file = e.target.files[0];
                 if (!file) return;
                 const reader = new FileReader();
                 reader.onload = (evt) => {
                     const dataArr = new Uint8Array(evt.target.result);
-                    const wb = window.XLSX.read(dataArr, { type: 'array' });
+                    const wb = XLSX.read(dataArr, { type: 'array' });
                     const ws = wb.Sheets[wb.SheetNames[0]];
-                    const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    
                     let headerRowIndex = rows.findIndex(row => {
                         if (!Array.isArray(row)) return false;
                         let matchCount = 0;
@@ -165,8 +164,10 @@
                         });
                         return matchCount >= 2;
                     });
+
                     if (headerRowIndex === -1) headerRowIndex = 0;
-                    const cleanData = window.XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
+                    const cleanData = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex });
+
                     if (type === 'students') {
                         const newStudents = cleanData.map(row => {
                             const ln = getValueByFlexibleKeys(row, ['nom', 'nomeleve', 'nom de l\'eleve', 'nom eleve']);
@@ -189,7 +190,6 @@
                         setData(prev => ({ ...prev, acts: [...prev.acts, ...newActs] }));
                         showNotif(`🎬 ${newActs.length} numéros importés !`);
                     } else if (type === 'assignments') {
-                        if (data.students.length === 0 || data.acts.length === 0) { showNotif("❌ Importez Artistes et Numéros d'abord !"); return; }
                         const newAssignments = cleanData.map(row => {
                             const actName = getValueByFlexibleKeys(row, ['nomdunúmero', 'numero', 'name']);
                             const firstName = getValueByFlexibleKeys(row, ['prenom', 'prenomeleve']);
@@ -213,12 +213,14 @@
                 if (acts.length === 0 || students.length === 0) { showNotif("Données manquantes !"); return; }
                 let temp = []; let stats = {};
                 students.forEach(s => stats[s.id] = { load: 0, last: -2 });
+
                 acts.forEach((act, i) => {
                     const req = actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
                     (req.fixedStudents || []).forEach(sId => {
                         if (students.find(x => x.id === sId)) { temp.push({ actId: act.id, studentId: sId }); stats[sId].load++; stats[sId].last = i; }
                     });
                 });
+
                 acts.forEach((act, i) => {
                     const req = actRequirements[act.id] || { total: 0, allowedFormations: [], fixedStudents: [] };
                     const currentIn = temp.filter(a => a.actId === act.id).length;
@@ -245,19 +247,21 @@
             };
 
             return (
-                <div className="min-h-screen bg-[#F8FAFF] pb-20">
+                <div className="min-h-screen bg-[#F8FAFF]">
                     <header className="bg-white/70 backdrop-blur-xl border-b border-indigo-50 sticky top-0 z-40 h-20 px-6 flex items-center justify-between">
                         <div className="flex items-center gap-4">
-                            <div className="bg-gradient-to-tr from-indigo-600 to-purple-600 p-3 rounded-[1.25rem] shadow-lg"><Sparkles className="w-6 h-6 text-white" /></div>
+                            <div className="bg-gradient-to-tr from-indigo-600 to-purple-600 p-3 rounded-[1.25rem] shadow-lg transform hover:rotate-6 transition-transform">
+                                <Sparkles className="w-6 h-6 text-white" />
+                            </div>
                             <div>
-                                <h1 className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-700 to-rose-600 uppercase tracking-tighter italic">SHOW PLANNER PRO</h1>
+                                <h1 className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-700 to-rose-600 uppercase tracking-tighter leading-none mb-1">SHOW PLANNER PRO</h1>
                                 <p className="text-[10px] font-bold tracking-widest text-indigo-400">DIRECTION ARTISTIQUE</p>
                             </div>
                         </div>
                         {notif && <div className="bg-indigo-800 text-white px-6 py-2 rounded-2xl text-xs font-black shadow-xl animate-bounce tracking-widest uppercase">{notif}</div>}
                     </header>
 
-                    <div className="max-w-7xl mx-auto px-6 py-8">
+                    <main className="max-w-7xl mx-auto px-6 py-8">
                         <nav className="flex bg-indigo-50/50 p-1.5 rounded-[2rem] shadow-inner mb-10 w-fit border border-white mx-auto overflow-x-auto custom-scrollbar">
                             {[
                                 { id: 'students', label: 'Artistes', icon: Users }, 
@@ -279,12 +283,12 @@
                         {activeTab === 'manual' && <ManualAllocation data={data} formations={formations} setData={setData} handleFileUpload={handleFileUpload} />}
                         {activeTab === 'stats' && <StatsDashboard data={data} formations={formations} />}
                         {activeTab === 'export' && <ExportDashboard data={data} formations={formations} />}
-                    </div>
+                    </main>
                 </div>
             );
         }
 
-        // --- COMPOSANTS DE SECTION (TON CODE INTÉGRAL) ---
+        // --- COMPOSANTS DE SECTION ---
 
         function StudentManager({ data, formations, setData, handleFileUpload }) {
             const [form, setForm] = useState({ firstName: '', lastName: '', trainingName: '' });
@@ -298,30 +302,30 @@
                     <div className="space-y-6">
                         <Card title="Ajout Manuel" icon={Plus}>
                             <form onSubmit={add} className="space-y-4">
-                                <input type="text" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none" placeholder="Prénom" />
-                                <input type="text" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold" placeholder="Nom" />
-                                <input type="text" value={form.trainingName} onChange={e => setForm({...form, trainingName: e.target.value})} list="f-list" className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold" placeholder="Formation" />
+                                <input type="text" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400" placeholder="Prénom" />
+                                <input type="text" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400" placeholder="Nom" />
+                                <input type="text" value={form.trainingName} onChange={e => setForm({...form, trainingName: e.target.value})} list="f-list" className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-100 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400" placeholder="Formation" />
                                 <datalist id="f-list">{formations.map(f => <option key={f} value={f} />)}</datalist>
                                 <Button className="w-full justify-center">Ajouter Artiste</Button>
                             </form>
                         </Card>
-                        <div className="relative rounded-[2rem] border-2 border-dashed border-indigo-200 p-8 text-center bg-indigo-50/30 group hover:border-indigo-400 transition-colors">
-                            <input type="file" accept=".xlsx, .xls" onChange={(e) => handleFileUpload(e, 'students')} className="absolute inset-0 opacity-0 cursor-pointer" />
+                        <div className="relative group rounded-[2rem] border-2 border-dashed border-indigo-200 p-8 text-center bg-indigo-50/30 hover:bg-indigo-50 transition-all cursor-pointer">
+                            <input type="file" accept=".xlsx, .xls" onChange={(e) => handleFileUpload(e, 'students')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                             <Upload className="w-10 h-10 text-indigo-400 mx-auto mb-3" />
                             <h4 className="font-bold text-indigo-900 text-xs uppercase tracking-widest">Excel Artistes</h4>
                         </div>
                     </div>
                     <div className="lg:col-span-3">
                         <Card title={`Troupe de Scène (${data.students.length})`} icon={Users}>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                                 {data.students.map(s => {
                                     const style = getFormationStyle(s.trainingName, formations);
                                     return (
                                         <div key={s.id} className="p-4 bg-white border border-slate-100 rounded-3xl flex justify-between items-center group shadow-sm hover:border-indigo-100 transition-all hover:scale-[1.02]">
                                             <div className="flex items-center gap-4">
                                                 <div className={`w-10 h-10 rounded-2xl ${style.bg} ${style.text} flex items-center justify-center font-black text-xs uppercase shadow-inner`}>{s.firstName[0]}</div>
-                                                <div>
-                                                    <h4 className="font-bold text-slate-800 text-[11px] uppercase truncate leading-none mb-1.5">{s.firstName} {s.lastName}</h4>
+                                                <div className="truncate">
+                                                    <h4 className="font-bold text-slate-800 text-[11px] uppercase leading-none mb-1.5 truncate tracking-tight">{s.firstName} {s.lastName}</h4>
                                                     <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md ${style.bg} ${style.text}`}>{s.trainingName}</span>
                                                 </div>
                                             </div>
@@ -338,14 +342,15 @@
 
         function ShowManager({ data, setData, handleFileUpload }) {
             const [form, setForm] = useState({ name: '', type: 'Tableau', energy: 'medium' });
+            const energyColors = { low: "from-blue-400 to-cyan-500", medium: "from-amber-400 to-orange-500", high: "from-rose-500 to-purple-600" };
             const add = (e) => { e.preventDefault(); if (!form.name) return; setData(prev => ({ ...prev, acts: [...prev.acts, { ...form, id: crypto.randomUUID() }] })); setForm({ name: '', type: 'Tableau', energy: 'medium' }); };
             return (
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
                     <div className="space-y-6">
                         <Card title="Nouveau Numéro" icon={Plus}>
                             <form onSubmit={add} className="space-y-5">
-                                <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-xs font-bold" placeholder="Nom" />
-                                <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-xs font-bold">
+                                <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-400" placeholder="Nom du numéro" />
+                                <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="w-full bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-xs font-bold outline-none bg-white">
                                     <option value="Ouverture">Ouverture</option>
                                     <option value="Introduction">Introduction</option>
                                     <option value="Tableau">Tableau</option>
@@ -354,22 +359,27 @@
                                 </select>
                                 <div className="flex gap-1">
                                     {['low', 'medium', 'high'].map(l => (
-                                        <button key={l} type="button" onClick={() => setForm({...form, energy: l})} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase ${form.energy === l ? 'bg-indigo-600 text-white shadow-md scale-105' : 'bg-slate-100 text-slate-400'}`}>{l}</button>
+                                        <button key={l} type="button" onClick={() => setForm({...form, energy: l})} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${form.energy === l ? 'bg-indigo-600 text-white shadow-md scale-105' : 'bg-slate-100 text-slate-400'}`}>{l}</button>
                                     ))}
                                 </div>
                                 <Button className="w-full justify-center">Ajouter au Show</Button>
                             </form>
                         </Card>
+                        <div className="relative group rounded-[2rem] border-2 border-dashed border-purple-200 p-8 text-center bg-purple-50/30 hover:bg-purple-50 transition-all cursor-pointer">
+                            <input type="file" accept=".xlsx, .xls" onChange={(e) => handleFileUpload(e, 'acts')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                            <FileSpreadsheet className="w-10 h-10 text-purple-400 mx-auto mb-3" />
+                            <h4 className="font-bold text-purple-900 text-xs uppercase tracking-widest">Excel Numéros</h4>
+                        </div>
                     </div>
                     <div className="lg:col-span-3 space-y-3">
                         {data.acts.map((act, idx) => (
                             <div key={act.id} className="group flex items-center justify-between p-4 bg-white border border-slate-50 rounded-2xl shadow-sm hover:shadow-md transition-all">
                                 <div className="flex items-center gap-6">
                                     <div className="text-3xl font-black text-slate-100 italic">{(idx + 1).toString().padStart(2, '0')}</div>
-                                    <div className="truncate pr-4"><h4 className="font-black text-slate-800 text-sm uppercase leading-none mb-2">{act.name}</h4><span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${getActTypeStyle(act.type).bg} ${getActTypeStyle(act.type).text}`}>{act.type}</span></div>
+                                    <div className="truncate pr-4"><h4 className="font-black text-slate-800 text-sm uppercase leading-none mb-2">{act.name}</h4><span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${getActTypeStyle(act.type).bg} ${getActTypeStyle(act.type).text}`}>{act.type || "Show"}</span></div>
                                 </div>
                                 <div className="flex items-center gap-3">
-                                    <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase text-white ${act.energy === 'high' ? 'bg-rose-500' : act.energy === 'low' ? 'bg-sky-500' : 'bg-amber-500'}`}>⚡ {act.energy}</div>
+                                    <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase text-white bg-gradient-to-r ${energyColors[act.energy]}`}>⚡ {act.energy}</div>
                                     <button onClick={() => setData(p => ({...p, acts: p.acts.filter(x => x.id !== act.id)}))} className="text-rose-200 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
                                 </div>
                             </div>
@@ -398,7 +408,7 @@
                                 return (
                                     <div key={f} className={`px-5 py-3 rounded-2xl border ${style.bg} ${style.border} flex items-center gap-4 shadow-sm`}>
                                         <span className={`text-[10px] font-black uppercase tracking-wider ${style.text}`}>{f}</span>
-                                        <input type="number" min="1" value={data.formationLimits[f] || ''} onChange={e => setData(prev => ({...prev, formationLimits: {...prev.formationLimits, [f]: parseInt(e.target.value)}}))} className="w-12 bg-white px-2 py-1 rounded-lg text-xs font-black outline-none border border-white focus:border-indigo-300 transition-colors" placeholder="∞" />
+                                        <input type="number" min="1" value={data.formationLimits[f] || ''} onChange={e => setData(prev => ({...prev, formationLimits: {...prev.formationLimits, [f]: parseInt(e.target.value)}}))} className="w-12 bg-white px-2 py-1 rounded-lg text-xs font-black text-indigo-700 outline-none" placeholder="∞" />
                                     </div>
                                 );
                             })}
@@ -412,20 +422,26 @@
                                 <div key={act.id} className="bg-white rounded-[2.5rem] p-8 shadow-xl border border-white flex flex-col lg:flex-row gap-8 hover:border-indigo-100 transition-all">
                                     <div className="lg:w-64 shrink-0 border-r pr-8 border-slate-50">
                                         <div className="text-3xl font-black text-slate-100 italic mb-2">{(idx + 1).toString().padStart(2, '0')}</div>
-                                        <h4 className="text-[12px] font-black text-slate-800 uppercase leading-tight mb-6">{act.name}</h4>
-                                        <input type="number" value={req.total || ''} onChange={e => setData(prev => ({...prev, actRequirements: {...prev.actRequirements, [act.id]: {...req, total: parseInt(e.target.value) || 0}}}))} className="w-full px-4 py-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 text-center font-black text-indigo-700 outline-none text-xs" placeholder="Effectif cible" />
+                                        <h4 className="text-[12px] font-black text-slate-800 uppercase leading-tight mb-6 tracking-tight">{act.name}</h4>
+                                        <div className="flex items-center gap-3 bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100/30">
+                                            <Users className="w-4 h-4 text-indigo-400" />
+                                            <input type="number" min="0" value={req.total || ''} onChange={e => setData(prev => ({...prev, actRequirements: {...prev.actRequirements, [act.id]: {...req, total: parseInt(e.target.value) || 0}}}))} className="w-full bg-transparent text-center font-black text-indigo-700 outline-none text-xs" placeholder="Besoin Artistes" />
+                                        </div>
                                     </div>
                                     <div className="flex-1 space-y-4 px-8">
                                         <label className="text-[9px] font-black uppercase text-slate-400 block tracking-widest opacity-60">Formations Autorisées</label>
                                         <div className="flex flex-wrap gap-2.5">
                                             {formations.map(f => {
                                                 const active = req.allowedFormations.includes(f);
-                                                return <button key={f} onClick={() => setData(prev => { const n = active ? req.allowedFormations.filter(x => x !== f) : [...req.allowedFormations, f]; return {...prev, actRequirements: {...prev.actRequirements, [act.id]: {...req, allowedFormations: n}}}; })} className={`px-4 py-2 rounded-xl text-[9px] font-black transition-all border ${active ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg scale-105' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-300'}`}>{f}</button>
+                                                const style = getFormationStyle(f, formations);
+                                                return <button key={f} onClick={() => setData(prev => { const n = active ? req.allowedFormations.filter(x => x !== f) : [...req.allowedFormations, f]; return {...prev, actRequirements: {...prev.actRequirements, [act.id]: {...req, allowedFormations: n}}}; })} className={`px-4 py-2 rounded-xl text-[9px] font-black transition-all border ${active ? `${style.bg} ${style.border} ${style.text} shadow-lg scale-105` : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-300'}`}>{f}</button>
                                             })}
                                         </div>
                                     </div>
                                     <div className="lg:w-80 shrink-0 space-y-4 border-l pl-8 border-slate-50">
-                                        <div className="relative"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" /><input type="text" placeholder="Imposer un artiste..." value={fixedSearch[act.id] || ""} onChange={(e) => setFixedSearch({...fixedSearch, [act.id]: e.target.value})} className="w-full pl-12 pr-4 py-3 rounded-2xl border border-slate-100 bg-slate-50/50 text-[10px] font-bold outline-none focus:ring-4 focus:ring-indigo-100/10 transition-all" />
+                                        <div className="relative">
+                                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                                            <input type="text" placeholder="Imposer un artiste..." value={fixedSearch[act.id] || ""} onChange={(e) => setFixedSearch({...fixedSearch, [act.id]: e.target.value})} className="w-full pl-12 pr-4 py-3 rounded-2xl border border-slate-100 bg-slate-50/50 text-[10px] font-bold outline-none focus:ring-4 focus:ring-indigo-100/10 transition-all" />
                                             {fixedSearch[act.id] && <div className="absolute top-full left-0 right-0 z-50 bg-white border border-slate-100 rounded-2xl mt-2 shadow-2xl overflow-hidden animate-in zoom-in-95">{matches.map(s => <button key={s.id} onClick={() => { toggleFixedStudent(act.id, s.id); setFixedSearch({...fixedSearch, [act.id]: ""}); }} className="w-full text-left px-5 py-3 text-[10px] hover:bg-indigo-50 flex items-center justify-between font-black uppercase border-b last:border-0">{s.firstName} {s.lastName}</button>)}</div>}
                                         </div>
                                         <div className="flex flex-wrap gap-2">{req.fixedStudents?.map(sId => { const s = data.students.find(x => x.id === sId); return s ? (<div key={sId} className="flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-xl border bg-amber-50 border-amber-200 text-amber-700 text-[9px] font-black uppercase shadow-sm"><Lock className="w-3 h-3 opacity-50" /> {s.firstName} <button onClick={() => toggleFixedStudent(act.id, sId)}><X className="w-3.5 h-3.5" /></button></div>) : null; })}</div>
@@ -434,45 +450,63 @@
                             );
                         })}
                     </div>
-                    <div className="flex justify-center pb-20"><button className="px-24 py-8 bg-indigo-600 rounded-[3rem] text-white font-black text-2xl shadow-2xl hover:scale-110 active:scale-95 transition-all border-b-8 border-indigo-900 italic tracking-tighter" onClick={onGenerate}>LANCER LE CALCUL MAGIQUE ✨</button></div>
+                    <div className="flex justify-center pb-20"><button className="px-24 py-8 bg-gradient-to-br from-indigo-600 via-purple-600 to-rose-600 rounded-[3rem] text-white font-black text-2xl shadow-2xl hover:scale-110 active:scale-95 transition-all border-b-8 border-indigo-900 italic tracking-tighter uppercase" onClick={onGenerate}>LANCER LE CALCUL MAGIQUE ✨</button></div>
                 </div>
             );
         }
 
-        function ManualAllocation({ data, formations, setData }) {
+        function ManualAllocation({ data, formations, setData, handleFileUpload }) {
             const [selectedActId, setSelectedActId] = useState(data.acts[0]?.id);
             const [search, setSearch] = useState("");
             const currentAct = data.acts.find(a => a.id === selectedActId);
             const castIds = new Set(data.assignments.filter(a => a.actId === selectedActId).map(a => a.studentId));
             return (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                    <div className="lg:col-span-4 space-y-3 max-h-[750px] overflow-y-auto pr-2 custom-scrollbar">
-                        {data.acts.map((act, idx) => (
-                            <button key={act.id} onClick={() => setSelectedActId(act.id)} className={`w-full text-left p-6 rounded-[2rem] border transition-all flex items-center justify-between ${selectedActId === act.id ? 'bg-indigo-600 text-white shadow-2xl scale-[1.02]' : 'bg-white text-slate-600 border-indigo-50 hover:border-indigo-200'}`}>
-                                <div className="truncate pr-2 text-[11px] font-black uppercase tracking-tight italic">{(idx + 1)}. {act.name}</div>
-                                <div className={`shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs ${selectedActId === act.id ? 'bg-indigo-500' : 'bg-indigo-50 text-indigo-600'}`}>{data.assignments.filter(a => a.actId === act.id).length}</div>
-                            </button>
-                        ))}
+                    <div className="lg:col-span-4 space-y-4 max-h-[750px] overflow-y-auto pr-2 custom-scrollbar">
+                        <div className="relative group rounded-[2rem] border-2 border-dashed border-indigo-100 p-8 text-center bg-indigo-50/30 hover:bg-indigo-50 transition-all cursor-pointer">
+                            <input type="file" accept=".xlsx, .xls" onChange={(e) => handleFileUpload(e, 'assignments')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                            <Upload className="w-8 h-8 text-indigo-400 mx-auto mb-2" />
+                            <h4 className="font-bold text-indigo-900 text-[9px] uppercase tracking-widest">Importer Répartition</h4>
+                        </div>
+                        <div className="space-y-1.5">
+                            {data.acts.map((act, idx) => (
+                                <button key={act.id} onClick={() => setSelectedActId(act.id)} className={`w-full text-left p-6 rounded-[2rem] border transition-all flex items-center justify-between ${selectedActId === act.id ? 'bg-indigo-600 text-white shadow-2xl scale-[1.02]' : 'bg-white text-slate-600 border-indigo-50 hover:border-indigo-200 shadow-sm'}`}>
+                                    <div className="truncate pr-2 text-[11px] font-black uppercase tracking-tight italic">{(idx + 1)}. {act.name}</div>
+                                    <div className={`shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs ${selectedActId === act.id ? 'bg-indigo-500' : 'bg-indigo-50 text-indigo-600'}`}>{data.assignments.filter(a => a.actId === act.id).length}</div>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                     <div className="lg:col-span-8">
-                        <Card title={`Distribution : ${currentAct?.name || '---'}`} icon={Star}>
-                            <div className="relative mb-8"><Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" /><input type="text" placeholder="Rechercher un artiste..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-16 pr-6 py-6 rounded-[2.5rem] bg-indigo-50/20 text-sm font-black outline-none focus:ring-8 focus:ring-indigo-100 transition-all border-2 border-indigo-50 shadow-inner" /></div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                {data.students.filter(s => `${s.firstName} ${s.lastName}`.toLowerCase().includes(search.toLowerCase())).map(student => {
-                                    const assigned = castIds.has(student.id);
-                                    const style = getFormationStyle(student.trainingName, formations);
-                                    return (
-                                        <button key={student.id} onClick={() => { const exists = data.assignments.some(a => a.actId === selectedActId && a.studentId === student.id); setData(p => ({ ...p, assignments: exists ? p.assignments.filter(a => !(a.actId === selectedActId && a.studentId === student.id)) : [...p.assignments, { actId: selectedActId, studentId: student.id }] })); }} className={`relative p-4 rounded-[2rem] border-2 text-left transition-all ${assigned ? `${style.bg} ${style.border} shadow-lg scale-110 z-10` : 'bg-white border-white opacity-60 hover:opacity-100 hover:scale-[1.03]'}`}>
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs shrink-0 ${assigned ? 'bg-white/70' : style.bg} ${style.text}`}>{student.firstName[0]}</div>
-                                                <div className="truncate"><p className={`font-black text-[11px] uppercase truncate ${assigned ? style.text : 'text-slate-800'}`}>{student.firstName} {student.lastName}</p><p className="text-[9px] font-bold text-slate-400 italic">Passages : {data.assignments.filter(a => a.studentId === student.id).length}</p></div>
-                                            </div>
-                                            {assigned && <div className="absolute -top-3 -right-3 bg-indigo-600 text-white p-2 rounded-full shadow-xl border-4 border-white animate-in zoom-in-50"><Check className="w-4 h-4" /></div>}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </Card>
+                        {currentAct ? (
+                            <Card title={`Distribution : ${currentAct.name}`} icon={Star}>
+                                <div className="relative mb-8">
+                                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                                    <input type="text" placeholder="Rechercher un artiste..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-16 pr-6 py-6 rounded-[2.5rem] bg-indigo-50/20 text-sm font-black outline-none focus:ring-8 focus:ring-indigo-100 transition-all border-2 border-indigo-50 shadow-inner" />
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    {data.students.filter(s => `${s.firstName} ${s.lastName}`.toLowerCase().includes(search.toLowerCase())).map(student => {
+                                        const assigned = castIds.has(student.id);
+                                        const style = getFormationStyle(student.trainingName, formations);
+                                        return (
+                                            <button key={student.id} onClick={() => {
+                                                const exists = data.assignments.some(a => a.actId === selectedActId && a.studentId === student.id);
+                                                setData(p => ({ ...p, assignments: exists ? p.assignments.filter(a => !(a.actId === selectedActId && a.studentId === student.id)) : [...p.assignments, { actId: selectedActId, studentId: student.id }] }));
+                                            }} className={`relative p-4 rounded-[2rem] border-2 text-left transition-all ${assigned ? `${style.bg} ${style.border} shadow-lg scale-110 z-10` : 'bg-white border-white opacity-60 hover:opacity-100 hover:scale-[1.03]'}`}>
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs shrink-0 ${assigned ? 'bg-white/70' : style.bg} ${style.text}`}>{student.firstName[0]}</div>
+                                                    <div className="truncate pr-2">
+                                                        <p className={`font-black text-[11px] uppercase truncate leading-none mb-1.5 ${assigned ? style.text : 'text-slate-800'}`}>{student.firstName} {student.lastName}</p>
+                                                        <p className="text-[9px] font-bold text-slate-400 italic">Charge : {data.assignments.filter(a => a.studentId === student.id).length}</p>
+                                                    </div>
+                                                </div>
+                                                {assigned && <div className="absolute -top-3 -right-3 bg-indigo-600 text-white p-2 rounded-full shadow-xl border-4 border-white animate-in zoom-in-50"><Check className="w-4 h-4" /></div>}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </Card>
+                        ) : <p className="text-center text-slate-400 py-32 italic uppercase font-black tracking-widest text-xs opacity-50 animate-pulse">Sélectionnez un numéro à gauche pour gérer le plateau</p>}
                     </div>
                 </div>
             );
@@ -482,75 +516,143 @@
             const energyData = useMemo(() => data.acts.map((act, idx) => ({ name: act.name, idx: idx + 1, val: act.energy === 'high' ? 3 : act.energy === 'low' ? 1 : 2 })), [data.acts]);
             const workloadData = useMemo(() => formations.map(f => ({ name: f, count: data.assignments.filter(a => data.students.find(s => s.id === a.studentId)?.trainingName === f).length })).sort((a,b) => b.count - a.count), [data.assignments, formations, data.students]);
             
-            const alerts = useMemo(() => {
+            const consecutiveAlerts = useMemo(() => {
                 const results = [];
                 data.students.forEach(s => {
                     for (let i = 0; i < data.acts.length - 1; i++) {
                         const in1 = data.assignments.some(a => a.actId === data.acts[i].id && a.studentId === s.id);
                         const in2 = data.assignments.some(a => a.actId === data.acts[i+1].id && a.studentId === s.id);
-                        if (in1 && in2) results.push({ name: `${s.firstName} ${s.lastName}`, act1: data.acts[i].name, act2: data.acts[i+1].name });
+                        if (in1 && in2) results.push({ id: `${s.id}-${i}`, name: `${s.firstName} ${s.lastName}`, act1: data.acts[i].name, act2: data.acts[i+1].name, idx1: i+1, idx2: i+2 });
                     }
                 });
                 return results;
             }, [data]);
 
+            const studentData = data.students.map(s => ({ id: s.id, name: `${s.firstName} ${s.lastName}`, count: data.assignments.filter(a => a.studentId === s.id).length, formation: s.trainingName })).sort((a, b) => b.count - a.count);
+
             return (
                 <div className="space-y-12 animate-in slide-in-from-bottom-5 duration-1000">
-                    {alerts.length > 0 && (
-                        <Card title="Alerte Sécurité : Repos 0" icon={AlertTriangle}>
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-                                {alerts.map((a,i) => (<div key={i} className="p-5 bg-rose-50 border border-rose-100 rounded-[2rem] flex items-center gap-4 shadow-sm hover:scale-[1.05] transition-transform group"><div className="w-10 h-10 rounded-2xl bg-rose-200 text-rose-800 flex items-center justify-center font-black shadow-inner italic transition-colors group-hover:bg-rose-600 group-hover:text-white">!</div><div><p className="font-black text-rose-800 text-[11px] uppercase truncate">{a.name}</p><p className="text-[9px] text-rose-400 font-bold italic leading-tight">{a.act1} ➔ {a.act2}</p></div></div>))}
+                    {consecutiveAlerts.length > 0 && (
+                        <Card title="Alerte Sécurité : Repos Zéro" icon={AlertTriangle}>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+                                {consecutiveAlerts.map(alert => (
+                                    <div key={alert.id} className="p-5 bg-rose-50 border border-rose-100 rounded-[2.5rem] flex items-center gap-4 shadow-sm hover:scale-[1.05] transition-transform group">
+                                        <div className="w-10 h-10 rounded-2xl bg-rose-200 text-rose-800 flex items-center justify-center font-black shadow-inner italic transition-colors group-hover:bg-rose-600 group-hover:text-white">!</div>
+                                        <div>
+                                            <p className="font-black text-rose-900 text-[11px] uppercase truncate leading-none mb-1.5">{alert.name}</p>
+                                            <div className="text-[9px] text-rose-400 font-bold uppercase italic leading-tight">{alert.idx1}. {alert.act1} ➔ {alert.idx2}. {alert.act2}</div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </Card>
                     )}
+                    
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                        <Card title="Énergie du Spectacle" icon={Activity}>
+                        <Card title="Rythme Énergétique du Show" icon={Activity}>
                             <div className="h-80 mt-10">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <LineChart data={energyData}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEF2FF" />
                                         <XAxis dataKey="idx" stroke="#94A3B8" fontSize={11} fontWeight="800" />
                                         <YAxis hide domain={[0, 4]} />
-                                        <Tooltip contentStyle={{borderRadius:'20px', border:'none', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)', textTransform:'uppercase', fontSize:'11px', fontWeight:'900'}} />
-                                        <Line type="monotone" dataKey="val" stroke="#6366F1" strokeWidth={8} dot={{ r: 8, fill: '#6366F1', stroke:'#fff', strokeWidth:4 }} />
+                                        <Tooltip contentStyle={{borderRadius:'20px', border:'none', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)', textTransform:'uppercase', fontSize:'11px', fontWeight:'900', padding:'20px'}} />
+                                        <Line type="monotone" dataKey="val" stroke="#6366F1" strokeWidth={8} dot={{ r: 8, fill: '#6366F1', stroke:'#fff', strokeWidth:4 }} activeDot={{ r: 10 }} />
                                     </LineChart>
                                 </ResponsiveContainer>
                             </div>
                         </Card>
-                        <Card title="Charge par Formation" icon={BarChart3}>
+                        <Card title="Charge Globale par Formation" icon={BarChart3}>
                             <div className="h-80 mt-10">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <BarChart data={workloadData}>
                                         <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} stroke="#64748b" fontWeight="900" />
-                                        <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'20px', border:'none'}} />
+                                        <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'20px', border:'none', padding:'20px'}} />
                                         <Bar dataKey="count" fill="#6366F1" radius={[15, 15, 0, 0]} barSize={35} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
                         </Card>
                     </div>
+
+                    <Card title="Classement Individuel des Sollicitations" icon={ListChecks}>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead>
+                                    <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                        <th className="px-6 py-4">Artiste</th>
+                                        <th className="px-6 py-4">Formation</th>
+                                        <th className="px-6 py-4 text-right">Apparitions</th>
+                                        <th className="px-6 py-4 w-60">Saturation de Charge</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {studentData.map(student => {
+                                        const style = getFormationStyle(student.formation, formations);
+                                        const maxCount = studentData[0]?.count || 1;
+                                        const percentage = (student.count / maxCount) * 100;
+                                        return (
+                                            <tr key={student.id} className="group hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-4 font-black text-slate-700 text-xs uppercase italic">{student.name}</td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase ${style.bg} ${style.text}`}>{student.formation}</span>
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <div className="inline-flex items-center justify-center w-9 h-9 rounded-2xl font-black text-xs bg-indigo-50 text-indigo-700 shadow-inner">{student.count}</div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                                        <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${percentage}%`, backgroundColor: style.pure }} />
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
                 </div>
             );
         }
 
-        function ExportDashboard({ data }) {
+        function ExportDashboard({ data, formations }) {
             const exportExcel = () => {
                 const workbook = XLSX.utils.book_new();
-                const sheetData = data.students.map(s => {
+                
+                const studentSchedules = data.students.map(s => {
                     const myActs = data.assignments.filter(a => a.studentId === s.id).map(a => {
                         const act = data.acts.find(ac => ac.id === a.actId);
-                        return act ? act.name : "";
+                        const idx = data.acts.findIndex(ac => ac.id === a.actId) + 1;
+                        return `${idx}. ${act ? act.name : ""}`;
                     });
-                    return { "ARTISTE": `${s.firstName} ${s.lastName}`.toUpperCase(), "FORMATION": s.trainingName.toUpperCase(), "NOMBRE DE PASSAGES": myActs.length, "PLANNING": myActs.join(' | ') };
+                    return {
+                        "ARTISTE": `${s.firstName} ${s.lastName}`.toUpperCase(),
+                        "FORMATION": s.trainingName.toUpperCase(),
+                        "NB PASSAGES": myActs.length,
+                        "FEUILLE DE ROUTE": myActs.join(' | ')
+                    };
                 });
-                XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(sheetData), "Conducteur Régie");
+                
+                const formationStats = formations.map(f => ({
+                    "FORMATION": f.toUpperCase(),
+                    "NB ÉLÈVES": data.students.filter(s => s.trainingName === f).length,
+                    "CHARGE TOTALE": data.assignments.filter(a => data.students.find(s => s.id === a.studentId)?.trainingName === f).length
+                }));
+
+                XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(studentSchedules), "Plannings Artistes");
+                XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(formationStats), "Analyse Formations");
                 XLSX.writeFile(workbook, `Regie_Show_Planner_${new Date().toLocaleDateString()}.xlsx`);
             };
+
             return (
-                <div className="max-w-4xl mx-auto text-center p-32 bg-white rounded-[6rem] shadow-[0_60px_100px_-20px_rgba(99,102,241,0.2)] border-b-[15px] border-indigo-600 animate-in zoom-in-95 duration-700">
-                    <Download className="w-32 h-32 text-indigo-500 mx-auto mb-12 animate-bounce" />
-                    <h3 className="font-black text-slate-800 text-6xl mb-12 uppercase tracking-tighter italic italic">Dossier de Régie</h3>
-                    <button onClick={exportExcel} className="bg-indigo-600 text-white px-32 py-10 rounded-[4rem] font-black text-3xl shadow-2xl hover:bg-indigo-700 active:scale-95 transition-all border-b-[10px] border-indigo-900 uppercase italic">Télécharger (.xlsx)</button>
+                <div className="max-w-4xl mx-auto text-center p-32 bg-white rounded-[6rem] shadow-[0_60px_120px_-20px_rgba(99,102,241,0.2)] border-b-[15px] border-indigo-600 animate-in zoom-in-95 duration-1000">
+                    <Download className="w-32 h-32 text-indigo-500 mx-auto mb-16 animate-bounce" />
+                    <h3 className="font-black text-slate-800 text-6xl mb-12 uppercase tracking-tighter italic">Dossier de Régie</h3>
+                    <p className="text-slate-400 font-bold text-xl uppercase tracking-widest mb-20 opacity-80 italic leading-relaxed">Conversion instantanée de la base de données vers Excel<br/>pour les feuilles de route et le conducteur technique.</p>
+                    <button onClick={exportExcel} className="bg-indigo-600 text-white px-32 py-10 rounded-[4rem] font-black text-3xl shadow-2xl hover:bg-indigo-700 active:scale-95 transition-all border-b-[12px] border-indigo-900 uppercase italic flex items-center gap-10 mx-auto">
+                        <FileSpreadsheet className="w-12 h-12" /> Télécharger (.xlsx)
+                    </button>
                 </div>
             );
         }
